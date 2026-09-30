@@ -60,11 +60,11 @@ function flush() {
 }
 
 /**
- * 驱动一次「渲染」：重置游标与 effect 收集，调用 hook，执行本轮 effect 并冲刷异步工作，
- * 在状态持续更新时重复渲染直到稳定（模拟 React 的 render → effect → render 循环）。
+ * 驱动一次「渲染」：进入该组件实例的 hook 作用域，调用 hook，执行本轮 effect 并冲刷
+ * 异步工作，在状态持续更新时重复渲染直到稳定（模拟 React 的 render → effect → render 循环）。
  * @param {Function} useConfig 受测 hook
  * @param {Function} call RPC 门面
- * @param {object} control React 替身控制面
+ * @param {object} control React 替身控制面（含 enter）
  * @returns {Promise<object>} 稳定后的状态快照
  */
 async function render(useConfig, call, control) {
@@ -72,7 +72,7 @@ async function render(useConfig, call, control) {
   // 上界 10 轮：每次渲染至多触发一轮 effect，正常路径 2 轮内稳定。
   // 无上界会在状态持续变化时无限循环（真实 React 由调度器保证收敛，替身需自带护栏）。
   for (let round = 0; round < 10; round += 1) {
-    control.cursor = 0
+    control.enter('codexpro-card')
     control.effects = []
     control.dirty = false
     state = useConfig(call)

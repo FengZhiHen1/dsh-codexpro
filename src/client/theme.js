@@ -1,7 +1,11 @@
-// theme — Client 主题 token 与样式基元：色值零硬编码，全部映射宿主 --dsw-alias-* token。
+// theme — Client 主题 token 与几何常量：色值零硬编码，全部映射宿主 --dsw-* token。
 //
-// 几何对齐同仓库既有两个 Client 插件的设置面（外壳已给页边距，横向零内缩）。
-// 参考：knowledge/client/15 §4.1、16；technical-details/RPC通道与设置页.md §五。
+// 边界：只放 token 与几何常量，不放组件；伪类效果由组件用状态合成（内联样式表达不了伪类，
+// 故 hover 走 onMouseEnter/Leave、focus 走 onFocus/Blur，与本仓库既有两个 Client 插件同构）。
+// 几何与字号对齐官方设置节（ui-settings-plugins 的 PluginsSettingsSection.module.css）与
+// 官方设置卡材料规范（knowledge/client/15 §4、16 §3）。
+// 边界补充：中性实线边框一律 0.5px；半径只用 --dsw-radius-* 六档，不用离格字面量。
+// 参考：knowledge/client/15 §4/§4.1、16 §3。
 
 /** 主题 token 表：宿主换肤即时生效。 */
 export const T = {
@@ -11,13 +15,23 @@ export const T = {
   bgModulePlatform: 'var(--dsw-alias-bg-module-platform)',
   borderL1: 'var(--dsw-alias-border-l1)',
   borderL2: 'var(--dsw-alias-border-l2)',
+  /** 官方设置卡描边用的层级（比 l1/l2 更浅，用于卡面轮廓）。 */
+  borderL4: 'var(--dsw-alias-border-l4)',
   brand: 'var(--dsw-alias-brand-primary)',
   labelPrimary: 'var(--dsw-alias-label-primary)',
   labelSecondary: 'var(--dsw-alias-label-secondary)',
   labelTertiary: 'var(--dsw-alias-label-tertiary)',
+  /** 官方用于计数、分组说明等最弱一级文本。 */
+  labelCaption: 'var(--dsw-alias-label-caption)',
   success: 'var(--dsw-alias-state-success-primary)',
   error: 'var(--dsw-alias-state-error-primary)',
   warn: 'var(--dsw-alias-state-warn-primary)',
+  /** 官方焦点环两件套（focus.css 定义，宿主统一）。 */
+  focusRingWidth: 'var(--dsw-focus-ring-width)',
+  focusRingColor: 'var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary))',
+  /** 官方设置卡材料（v0.1.7 新增两兄弟）。 */
+  settingsCardFill: 'var(--dsw-alias-settings-card-fill)',
+  settingsCardStroke: 'var(--dsw-alias-settings-card-stroke)',
 }
 
 /** 圆角 token 表：宿主六档（xs 4 / sm 8 / md 12 / lg 16 / xl 20 / panel 28）。 */
@@ -26,7 +40,11 @@ export const R = {
   sm: 'var(--dsw-radius-sm)',
   md: 'var(--dsw-radius-md)',
   lg: 'var(--dsw-radius-lg)',
+  xl: 'var(--dsw-radius-xl)',
 }
+
+/** 中性实线边框统一粗细：官方规范为 0.5px，不用 1px。 */
+export const HAIRLINE = '0.5px'
 
 /**
  * token 色晕（状态徽章共用）。
@@ -38,13 +56,18 @@ export const badgeStyle = (color) => ({
   background: `color-mix(in srgb, ${color} 15%, transparent)`,
 })
 
-/** 状态徽章几何基元（对齐原生 pill：高约 19px、全圆角、11px）。 */
+/** 状态徽章几何基元（对齐原生 pill：全圆角 + 11px）。 */
 export const pillBase = {
   display: 'inline-block',
-  padding: '1px 8px',
+  padding: '0 7px',
+  height: '18px',
   borderRadius: '999px',
+  // 全圆形状必须显式配 corner-shape: round：宿主 corner-shape.css 用通配选择器把
+  // 所有圆角统一成 superellipse(1.5)，会把胶囊两端压成方角。官方 Pill/Tag 同样成对声明。
+  // 不支持该属性的引擎忽略此声明，圆角回退为圆弧。
+  cornerShape: 'round',
   fontSize: '11px',
-  lineHeight: '17px',
+  lineHeight: '18px',
   background: T.bgModulePlatform,
   color: T.labelSecondary,
   whiteSpace: 'nowrap',
@@ -52,7 +75,7 @@ export const pillBase = {
 
 /**
  * 按态取徽章样式。
- * @param {'ok'|'warn'|'error'} kind 状态类别
+ * @param {'ok'|'warn'|'error'|'idle'} kind 状态类别
  * @returns {object} 样式
  */
 export const statusPillStyle = (kind) => {
@@ -62,33 +85,36 @@ export const statusPillStyle = (kind) => {
   return pillBase
 }
 
-/** 布局基元速查。 */
+/** 布局基元速查（字号对齐官方设置节的 13px 正文基准）。 */
 export const S = {
-  panel: { padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '12px' },
+  panel: { display: 'flex', flexDirection: 'column', gap: '12px' },
   listRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', fontSize: '13px', flexWrap: 'wrap' },
   toolbar: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
-  muted: { color: T.labelSecondary, fontSize: '12px' },
+  muted: { color: T.labelSecondary, fontSize: '13px' },
 }
 
-/** 卡容器（分区内容）。 */
+/** 官方设置卡材料：radius xl + 0.5px settings-card-stroke 描边 + settings-card-fill 底。 */
 export const cardStyle = {
-  border: `1px solid ${T.borderL1}`,
-  borderRadius: R.md,
-  background: T.bgLayer3,
+  border: `${HAIRLINE} solid ${T.settingsCardStroke}`,
+  borderRadius: R.xl,
+  background: T.settingsCardFill,
   overflow: 'hidden',
 }
 
-/** 浅底子卡。 */
-export const subCardStyle = { borderRadius: R.sm, background: T.bgModulePlatform }
+/** 浅底子卡（卡内分组）。 */
+export const subCardStyle = { borderRadius: R.md, background: T.bgModulePlatform }
 
-/** 分隔线。 */
-export const dividerStyle = { height: '1px', background: T.borderL1, flex: 'none' }
+/** 分隔线（卡内行间）。 */
+export const dividerStyle = { height: HAIRLINE, background: T.borderL2, flex: 'none' }
 
-/** 次要说明文本。 */
-export const noteText = { fontSize: '11px', color: T.labelSecondary, lineHeight: 1.5 }
+/** 次要说明文本（官方 tertiary，13px）。 */
+export const noteText = { fontSize: '13px', color: T.labelTertiary, lineHeight: '20px' }
 
-/** 段标题。 */
-export const sectionHead = { fontSize: '14px', fontWeight: 600, color: T.labelPrimary }
+/** 更弱一级文本（官方 caption，用于计数与最弱说明）。 */
+export const captionText = { fontSize: '12px', color: T.labelCaption, lineHeight: '18px' }
+
+/** 段标题（官方设置节 heading：18px/600）。 */
+export const sectionHead = { margin: 0, fontSize: '18px', fontWeight: 600, color: T.labelPrimary, lineHeight: '26px' }
 
 /** 小尺寸文字钮（行内操作）。 */
 export const linkBtn = {
@@ -96,19 +122,19 @@ export const linkBtn = {
   background: 'none',
   padding: 0,
   font: 'inherit',
-  fontSize: '11px',
+  fontSize: '12px',
   color: T.labelSecondary,
   cursor: 'pointer',
 }
 
-/** 文本输入基元（原生设置同构：浅底小圆角）。 */
+/** 文本输入基元（原生设置同构：浅底小圆角、0.5px 描边）。 */
 export const fieldStyle = {
-  border: `1px solid ${T.borderL1}`,
+  border: `${HAIRLINE} solid ${T.borderL2}`,
   borderRadius: R.sm,
   background: T.bgLayer3,
   padding: '4px 8px',
   font: 'inherit',
-  fontSize: '12px',
+  fontSize: '13px',
   color: T.labelPrimary,
   minWidth: 0,
 }

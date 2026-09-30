@@ -105,30 +105,47 @@ var T = {
   bgModulePlatform: "var(--dsw-alias-bg-module-platform)",
   borderL1: "var(--dsw-alias-border-l1)",
   borderL2: "var(--dsw-alias-border-l2)",
+  /** 官方设置卡描边用的层级（比 l1/l2 更浅，用于卡面轮廓）。 */
+  borderL4: "var(--dsw-alias-border-l4)",
   brand: "var(--dsw-alias-brand-primary)",
   labelPrimary: "var(--dsw-alias-label-primary)",
   labelSecondary: "var(--dsw-alias-label-secondary)",
   labelTertiary: "var(--dsw-alias-label-tertiary)",
+  /** 官方用于计数、分组说明等最弱一级文本。 */
+  labelCaption: "var(--dsw-alias-label-caption)",
   success: "var(--dsw-alias-state-success-primary)",
   error: "var(--dsw-alias-state-error-primary)",
-  warn: "var(--dsw-alias-state-warn-primary)"
+  warn: "var(--dsw-alias-state-warn-primary)",
+  /** 官方焦点环两件套（focus.css 定义，宿主统一）。 */
+  focusRingWidth: "var(--dsw-focus-ring-width)",
+  focusRingColor: "var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary))",
+  /** 官方设置卡材料（v0.1.7 新增两兄弟）。 */
+  settingsCardFill: "var(--dsw-alias-settings-card-fill)",
+  settingsCardStroke: "var(--dsw-alias-settings-card-stroke)"
 };
 var R = {
   xs: "var(--dsw-radius-xs)",
   sm: "var(--dsw-radius-sm)",
   md: "var(--dsw-radius-md)",
-  lg: "var(--dsw-radius-lg)"
+  lg: "var(--dsw-radius-lg)",
+  xl: "var(--dsw-radius-xl)"
 };
+var HAIRLINE = "0.5px";
 var badgeStyle = (color) => ({
   color,
   background: `color-mix(in srgb, ${color} 15%, transparent)`
 });
 var pillBase = {
   display: "inline-block",
-  padding: "1px 8px",
+  padding: "0 7px",
+  height: "18px",
   borderRadius: "999px",
+  // 全圆形状必须显式配 corner-shape: round：宿主 corner-shape.css 用通配选择器把
+  // 所有圆角统一成 superellipse(1.5)，会把胶囊两端压成方角。官方 Pill/Tag 同样成对声明。
+  // 不支持该属性的引擎忽略此声明，圆角回退为圆弧。
+  cornerShape: "round",
   fontSize: "11px",
-  lineHeight: "17px",
+  lineHeight: "18px",
   background: T.bgModulePlatform,
   color: T.labelSecondary,
   whiteSpace: "nowrap"
@@ -140,37 +157,38 @@ var statusPillStyle = (kind) => {
   return pillBase;
 };
 var S = {
-  panel: { padding: "10px 0", display: "flex", flexDirection: "column", gap: "12px" },
+  panel: { display: "flex", flexDirection: "column", gap: "12px" },
   listRow: { display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", fontSize: "13px", flexWrap: "wrap" },
   toolbar: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" },
-  muted: { color: T.labelSecondary, fontSize: "12px" }
+  muted: { color: T.labelSecondary, fontSize: "13px" }
 };
 var cardStyle = {
-  border: `1px solid ${T.borderL1}`,
-  borderRadius: R.md,
-  background: T.bgLayer3,
+  border: `${HAIRLINE} solid ${T.settingsCardStroke}`,
+  borderRadius: R.xl,
+  background: T.settingsCardFill,
   overflow: "hidden"
 };
-var subCardStyle = { borderRadius: R.sm, background: T.bgModulePlatform };
-var dividerStyle = { height: "1px", background: T.borderL1, flex: "none" };
-var noteText = { fontSize: "11px", color: T.labelSecondary, lineHeight: 1.5 };
-var sectionHead = { fontSize: "14px", fontWeight: 600, color: T.labelPrimary };
+var subCardStyle = { borderRadius: R.md, background: T.bgModulePlatform };
+var dividerStyle = { height: HAIRLINE, background: T.borderL2, flex: "none" };
+var noteText = { fontSize: "13px", color: T.labelTertiary, lineHeight: "20px" };
+var captionText = { fontSize: "12px", color: T.labelCaption, lineHeight: "18px" };
+var sectionHead = { margin: 0, fontSize: "18px", fontWeight: 600, color: T.labelPrimary, lineHeight: "26px" };
 var linkBtn = {
   border: "none",
   background: "none",
   padding: 0,
   font: "inherit",
-  fontSize: "11px",
+  fontSize: "12px",
   color: T.labelSecondary,
   cursor: "pointer"
 };
 var fieldStyle = {
-  border: `1px solid ${T.borderL1}`,
+  border: `${HAIRLINE} solid ${T.borderL2}`,
   borderRadius: R.sm,
   background: T.bgLayer3,
   padding: "4px 8px",
   font: "inherit",
-  fontSize: "12px",
+  fontSize: "13px",
   color: T.labelPrimary,
   minWidth: 0
 };
@@ -198,26 +216,113 @@ function StatePill({ state }) {
   const variant = info.kind === "ok" || info.kind === "error" ? info.kind : info.kind === "warn" ? "warn" : "idle";
   return (0, import_react.createElement)("span", { style: statusPillStyle(variant) }, info.label);
 }
-function TabBar({ active, onChange }) {
-  return (0, import_react.createElement)("div", {
-    style: { display: "flex", gap: "18px", borderBottom: `1px solid ${T.borderL1}`, paddingBottom: "6px" }
-  }, TABS.map((tab) => (0, import_react.createElement)("button", {
-    key: tab.id,
+function Tab({ tab, selected, onClick, onKeyDown, buttonRef, panelId }) {
+  const [hovered, setHovered] = (0, import_react.useState)(false);
+  const [focused, setFocused] = (0, import_react.useState)(false);
+  const style = {
+    position: "relative",
+    border: 0,
+    padding: "7px 1px 9px",
+    background: "transparent",
+    color: selected || hovered ? T.labelPrimary : T.labelTertiary,
+    font: "inherit",
+    fontSize: "13px",
+    lineHeight: "20px",
+    cursor: "pointer",
+    // 官方 :focus-visible 为 2px 焦点环、offset 2px、圆角 2px；内联无法判「是否键盘聚焦」，
+    // 故用 onFocus/onBlur 近似（鼠标点击也会命中，视觉上不冲突）。
+    outline: focused ? `${T.focusRingWidth} solid ${T.focusRingColor}` : "none",
+    outlineOffset: focused ? "2px" : void 0,
+    borderRadius: focused ? R.xs : void 0
+  };
+  const showIndicator = selected || focused;
+  return (0, import_react.createElement)("button", {
+    ref: buttonRef,
     type: "button",
-    onClick: () => onChange(tab.id),
-    style: {
-      border: "none",
-      background: "none",
-      padding: "2px 0",
-      font: "inherit",
-      fontSize: "13px",
-      cursor: "pointer",
-      color: active === tab.id ? T.labelPrimary : T.labelSecondary,
-      fontWeight: active === tab.id ? 600 : 400,
-      borderBottom: active === tab.id ? `2px solid ${T.brand}` : "2px solid transparent",
-      marginBottom: "-7px"
+    role: "tab",
+    id: `codexpro-tab-${tab.id}`,
+    "aria-selected": selected,
+    "aria-controls": panelId,
+    tabIndex: selected ? 0 : -1,
+    style,
+    onClick,
+    onKeyDown,
+    onMouseEnter: () => setHovered(true),
+    onMouseLeave: () => setHovered(false),
+    onFocus: () => setFocused(true),
+    onBlur: () => setFocused(false)
+  }, [
+    tab.label,
+    showIndicator ? (0, import_react.createElement)("span", {
+      key: "indicator",
+      "aria-hidden": "true",
+      style: {
+        position: "absolute",
+        right: 0,
+        bottom: "-1px",
+        left: 0,
+        height: "2px",
+        borderRadius: "2px 2px 0 0",
+        background: T.labelPrimary
+      }
+    }) : null
+  ]);
+}
+function TabBar({ active, onChange, label, panelIdOf: panelIdOf2 }) {
+  const refs = (0, import_react.useRef)([]);
+  const onKeyDown = (event, index) => {
+    let next;
+    switch (event.key) {
+      case "ArrowLeft":
+        next = (index + TABS.length - 1) % TABS.length;
+        break;
+      case "ArrowRight":
+        next = (index + 1) % TABS.length;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = TABS.length - 1;
+        break;
+      default:
+        return;
     }
-  }, tab.label)));
+    event.preventDefault();
+    event.stopPropagation();
+    onChange(TABS[next].id);
+    refs.current[next]?.focus();
+  };
+  return (0, import_react.createElement)("div", {
+    role: "tablist",
+    "aria-label": label,
+    style: {
+      display: "flex",
+      alignItems: "flex-end",
+      gap: "22px",
+      borderBottom: `${HAIRLINE} solid ${T.borderL2}`,
+      marginTop: "2px"
+    }
+  }, TABS.map((tab, index) => (0, import_react.createElement)(Tab, {
+    key: tab.id,
+    tab,
+    selected: active === tab.id,
+    onClick: () => onChange(tab.id),
+    onKeyDown: (event) => onKeyDown(event, index),
+    buttonRef: (element) => {
+      refs.current[index] = element;
+    },
+    panelId: panelIdOf2(tab.id)
+  })));
+}
+function TabPanel({ id, selected, panelIdOf: panelIdOf2, children }) {
+  return (0, import_react.createElement)("div", {
+    id: panelIdOf2(id),
+    role: "tabpanel",
+    "aria-labelledby": `codexpro-tab-${id}`,
+    hidden: !selected,
+    style: { minWidth: 0, paddingTop: "2px" }
+  }, children);
 }
 function Field({ label, hint, children }) {
   return (0, import_react.createElement)("div", {
@@ -234,8 +339,8 @@ function Divider() {
 function ErrorBar({ message }) {
   if (!message) return null;
   return (0, import_react.createElement)("div", {
-    style: { margin: "0 12px 10px", padding: "6px 10px", borderRadius: R.sm, background: T.bgModulePlatform }
-  }, (0, import_react.createElement)("span", { style: { fontSize: "12px", color: T.error } }, message));
+    style: { margin: "0 12px 10px", padding: "6px 10px", borderRadius: R.md, background: T.bgModulePlatform }
+  }, (0, import_react.createElement)("span", { style: { fontSize: "13px", color: T.error, lineHeight: "20px" } }, message));
 }
 function SaveBar({ dirty, error, busy, onSave }) {
   if (!dirty && !error) return null;
@@ -245,16 +350,15 @@ function SaveBar({ dirty, error, busy, onSave }) {
       alignItems: "center",
       gap: "10px",
       padding: "8px 12px",
-      borderRadius: R.md,
+      borderRadius: R.lg,
       background: T.bgModulePlatform,
       flexWrap: "wrap"
     }
   }, [
     (0, import_react.createElement)(import_dsh_client_ui_primitives.Button, { key: "save", label: "\u4FDD\u5B58", variant: "primary", size: "sm", disabled: busy || !dirty, onClick: onSave }),
-    error ? (0, import_react.createElement)("span", { key: "err", style: { fontSize: "12px", color: T.error } }, error) : (0, import_react.createElement)("span", { key: "hint", style: noteText }, "\u4EC5\u4FDD\u5B58\u5DF2\u6539\u52A8\u9879\uFF1B\u672A\u4FDD\u5B58\u7684\u6539\u52A8\u5728\u79BB\u5F00\u9875\u9762\u540E\u4E22\u5F03")
+    error ? (0, import_react.createElement)("span", { key: "err", style: { fontSize: "13px", color: T.error, lineHeight: "20px" } }, error) : (0, import_react.createElement)("span", { key: "hint", style: captionText }, "\u4EC5\u4FDD\u5B58\u5DF2\u6539\u52A8\u9879\uFF1B\u672A\u4FDD\u5B58\u7684\u6539\u52A8\u5728\u79BB\u5F00\u9875\u9762\u540E\u4E22\u5F03")
   ]);
 }
-var cardPanelStyle = { border: `1px solid ${T.borderL1}`, borderRadius: R.md, background: T.bgLayer3, overflow: "hidden" };
 
 // src/client/panels.jsx
 var import_react2 = require("react");
@@ -316,7 +420,8 @@ function ProcessPanel({ status, busy, onAction, onRefresh }) {
         style: {
           display: "block",
           padding: "6px 8px",
-          fontSize: "11px",
+          fontSize: "12px",
+          lineHeight: "18px",
           borderRadius: R.sm,
           background: T.bgModulePlatform,
           color: T.labelSecondary,
@@ -338,7 +443,7 @@ function WorkspacesPanel({ workspaces, draft, onToggle, anchorDir }) {
       key: item.path,
       style: {
         ...S.listRow,
-        borderTop: index === 0 ? "none" : `1px solid ${T.borderL1}`,
+        borderTop: index === 0 ? "none" : `${HAIRLINE} solid ${T.borderL2}`,
         opacity: item.exists ? 1 : 0.55
       }
     }, [
@@ -519,62 +624,83 @@ function buildActions({ call, refresh, setters, state }) {
 }
 
 // src/client/card.jsx
+function panelIdOf(id) {
+  return `codexpro-panel-${id}`;
+}
 function CodexProCard({ call, view }) {
   const [tab, setTab] = (0, import_react4.useState)("process");
+  const [visited, setVisited] = (0, import_react4.useState)(() => /* @__PURE__ */ new Set(["process"]));
   const state = useConfig(call);
+  (0, import_react4.useEffect)(() => {
+    setVisited((previous) => previous.has(tab) ? previous : /* @__PURE__ */ new Set([...previous, tab]));
+  }, [tab]);
   if (view === "summary") {
     return (0, import_react4.createElement)(
       "div",
-      { style: { fontSize: "12px", color: S.muted.color } },
+      { style: { fontSize: "13px", color: S.muted.color } },
       "\u7BA1\u7406 codexpro\uFF1A\u6388\u6743\u5DE5\u4F5C\u533A\u3001\u63A7\u5236\u8FDB\u7A0B\u3001\u9009\u62E9 tunnel \u65B9\u5F0F"
     );
   }
   return (0, import_react4.createElement)("div", { style: S.panel }, [
     (0, import_react4.createElement)("header", { key: "head" }, [
-      (0, import_react4.createElement)("div", { key: "t", style: { ...sectionHead, fontSize: "15px" } }, "CodexPro"),
+      (0, import_react4.createElement)("h2", { key: "t", style: sectionHead }, "CodexPro"),
       (0, import_react4.createElement)(
-        "div",
-        { key: "d", style: { ...noteText, marginTop: "2px" } },
+        "p",
+        { key: "d", style: { ...noteText, margin: "4px 0 0" } },
         "\u628A DSH \u5DE5\u4F5C\u533A\u6388\u6743\u7ED9 ChatGPT\uFF0C\u5E76\u6258\u7BA1\u672C\u5730 codexpro \u8FDB\u7A0B\u3002"
       )
     ]),
-    (0, import_react4.createElement)(TabBar, { key: "tabs", active: tab, onChange: setTab }),
-    renderTab(tab, state),
-    renderSaveBar(tab, state),
-    (0, import_react4.createElement)("div", { key: "note", style: noteText }, [
+    (0, import_react4.createElement)(TabBar, { key: "tabs", active: tab, onChange: setTab, label: "CodexPro \u914D\u7F6E\u5206\u533A", panelIdOf }),
+    (0, import_react4.createElement)(PanelHost, { key: "panels", tab, visited, state, panelIdOf }),
+    (0, import_react4.createElement)(SaveBarHost, { key: "bar", tab, state }),
+    (0, import_react4.createElement)("div", { key: "note", style: captionText }, [
       (0, import_react4.createElement)("div", { key: "a" }, "codexpro \u662F\u672C\u5730\u5F00\u53D1\u6865\uFF0C\u4E0D\u662F\u64CD\u4F5C\u7CFB\u7EDF\u7EA7\u6C99\u7BB1\uFF1A\u6388\u6743\u4E00\u4E2A\u76EE\u5F55\u5373\u5141\u8BB8 ChatGPT \u5728\u5176\u4E2D\u8BFB\u5199\u5E76\u6267\u884C\u53D7\u63A7\u547D\u4EE4\u3002"),
-      (0, import_react4.createElement)("div", { key: "b" }, "\u672C\u63D2\u4EF6\u7684\u6570\u636E\u76EE\u5F55\u4E0E\u7EC8\u7AEF\u624B\u5DE5\u4F7F\u7528\u7684 ~/.codexpro \u76F8\u4E92\u72EC\u7ACB\u3002\u53C2\u6570\u6539\u52A8\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002")
+      (0, import_react4.createElement)(
+        "div",
+        { key: "b", style: { marginTop: "2px" } },
+        "\u672C\u63D2\u4EF6\u7684\u6570\u636E\u76EE\u5F55\u4E0E\u7EC8\u7AEF\u624B\u5DE5\u4F7F\u7528\u7684 ~/.codexpro \u76F8\u4E92\u72EC\u7ACB\u3002\u53C2\u6570\u6539\u52A8\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002"
+      )
     ])
   ]);
 }
-function renderTab(tab, state) {
-  if (tab === "process") {
-    return (0, import_react4.createElement)(ProcessPanel, {
-      key: "process",
-      status: state.status,
-      busy: state.busy,
-      onAction: state.act,
-      onRefresh: state.refresh
-    });
+function PanelHost({ tab, visited, state, panelIdOf: panelIdOf2 }) {
+  const panels = [];
+  if (visited.has("process")) {
+    panels.push((0, import_react4.createElement)(
+      TabPanel,
+      { key: "process", id: "process", selected: tab === "process", panelIdOf: panelIdOf2 },
+      (0, import_react4.createElement)(ProcessPanel, {
+        status: state.status,
+        busy: state.busy,
+        onAction: state.act,
+        onRefresh: state.refresh
+      })
+    ));
   }
-  if (tab === "workspaces") {
-    return (0, import_react4.createElement)(WorkspacesPanel, {
-      key: "workspaces",
-      workspaces: state.workspaces,
-      draft: state.authDraft ?? {},
-      onToggle: state.toggleWorkspace,
-      anchorDir: state.catalog?.anchorDir ?? ""
-    });
+  if (visited.has("workspaces")) {
+    panels.push((0, import_react4.createElement)(
+      TabPanel,
+      { key: "workspaces", id: "workspaces", selected: tab === "workspaces", panelIdOf: panelIdOf2 },
+      (0, import_react4.createElement)(WorkspacesPanel, {
+        workspaces: state.workspaces,
+        draft: state.authDraft ?? {},
+        onToggle: state.toggleWorkspace,
+        anchorDir: state.catalog?.anchorDir ?? ""
+      })
+    ));
   }
-  if (tab === "options" && state.optionDraft) {
-    return (0, import_react4.createElement)(OptionsPanel, { key: "options", draft: state.optionDraft, onChange: state.changeOption });
+  if (visited.has("options")) {
+    panels.push((0, import_react4.createElement)(
+      TabPanel,
+      { key: "options", id: "options", selected: tab === "options", panelIdOf: panelIdOf2 },
+      state.optionDraft ? (0, import_react4.createElement)(OptionsPanel, { draft: state.optionDraft, onChange: state.changeOption }) : null
+    ));
   }
-  return null;
+  return panels;
 }
-function renderSaveBar(tab, state) {
+function SaveBarHost({ tab, state }) {
   if (tab === "workspaces") {
     return (0, import_react4.createElement)(SaveBar, {
-      key: "bar",
       dirty: state.authDirty,
       error: state.error,
       busy: state.busy,
@@ -583,14 +709,13 @@ function renderSaveBar(tab, state) {
   }
   if (tab === "options") {
     return (0, import_react4.createElement)(SaveBar, {
-      key: "bar",
       dirty: state.optionDirty,
       error: state.error,
       busy: state.busy,
       onSave: state.saveOptions
     });
   }
-  return (0, import_react4.createElement)(SaveBar, { key: "bar", dirty: false, error: state.error, busy: state.busy, onSave: () => {
+  return (0, import_react4.createElement)(SaveBar, { dirty: false, error: state.error, busy: state.busy, onSave: () => {
   } });
 }
 

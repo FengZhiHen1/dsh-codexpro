@@ -6,7 +6,7 @@
 import { createElement as h } from 'react'
 import { Button, Checkbox } from '@deepseek-ai/dsh-client-ui-primitives'
 import { BASH_MODES, HOSTNAME_REQUIRED_TUNNELS, TUNNEL_MODES, WRITE_MODES } from '../core/codexpro.js'
-import { R, S, T, cardStyle, dividerStyle, fieldStyle, noteText, statusPillStyle } from './theme.js'
+import { HAIRLINE, R, S, T, cardStyle, dividerStyle, fieldStyle, noteText, statusPillStyle } from './theme.js'
 import { Divider, ErrorBar, Field, StatePill } from './parts.jsx'
 
 /** tunnel 取值的展示说明；取值本身取自 core 的权威词表，避免两半侧漂移。 */
@@ -54,7 +54,8 @@ export function ProcessPanel({ status, busy, onAction, onRefresh }) {
         style: {
           display: 'block',
           padding: '6px 8px',
-          fontSize: '11px',
+          fontSize: '12px',
+          lineHeight: '18px',
           borderRadius: R.sm,
           background: T.bgModulePlatform,
           color: T.labelSecondary,
@@ -86,7 +87,7 @@ export function WorkspacesPanel({ workspaces, draft, onToggle, anchorDir }) {
       key: item.path,
       style: {
         ...S.listRow,
-        borderTop: index === 0 ? 'none' : `1px solid ${T.borderL1}`,
+        borderTop: index === 0 ? 'none' : `${HAIRLINE} solid ${T.borderL2}`,
         opacity: item.exists ? 1 : 0.55,
       },
     }, [
