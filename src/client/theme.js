@@ -194,25 +194,53 @@ export const fieldStyle = {
 const SELECT_CHEVRON = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")"
 
 /**
- * 下拉框（`<select>`）样式：官方 `ModelsSection.module.css` 的 `.selectInput`。
+ * 下拉框外框：由 `<div>` 绘制，`<select>` 只作透明交互层（走查事故 2026-09-30）。
  *
- * `appearance: none` 是必需的，不是可选美化。缺它时 Chrome 仍按原生外观绘制控件：
- * 聚焦态（下拉关闭后 select 仍聚焦）会盖掉作者声明的描边与圆角，表现为「选完值胶囊框消失、
- * 点别处才回来」；失焦后作者样式恢复，框又出现。官方 4 处自绘 select
- * （ModelsSection / InputBar / AgentPresetSection / SettingsForm）无一例外都声明了它。
+ * 为什么不把 border 画在 select 上：用户环境实测（截图像素扫描）显示
+ * `appearance: none` 之后 `<select>` 自身的 `border` 直边一个像素都不绘制，
+ * 只剩四个圆角弧；而同一页由 `<div>` 绘制的边框与 `<input>` 的边框四边 100% 完整。
+ * 即「作者样式的 border 在 select 上不可靠」是本环境的既成事实（本项目 headless
+ * Chrome 无法复现，故不深究引擎差异，改用可验证可靠的元素来画框）。
  *
- * 右侧留 32px 给箭头（原生箭头被 appearance:none 移除，须自绘）。
- * 不设 `outline: none`：保留默认聚焦环，键盘可达性不受影响。
+ * 外框交给 div 另有一处收益：焦点态的原生重绘不再影响外框——原始缺陷
+ * 「选完值胶囊框消失、点别处才回来」正来自 select 的状态重绘，div 外框不参与该状态。
+ *
+ * 箭头也画在外框上（背景图 + 透明 select），使箭头的渲染同样不依赖 select 自身绘制。
  */
-export const selectStyle = {
-  ...fieldStyle,
-  appearance: 'none',
-  paddingRight: '32px',
+export const selectBoxStyle = {
+  border: `${HAIRLINE} solid ${T.borderL4}`,
+  borderRadius: R.md,
+  backgroundColor: T.bgLayer3,
   backgroundImage: SELECT_CHEVRON,
   backgroundRepeat: 'no-repeat',
   backgroundPosition: 'right 12px center',
   backgroundSize: '12px 12px',
-  cursor: 'pointer',
+  height: '34px',
+  boxSizing: 'border-box',
+  display: 'inline-flex',
+  alignItems: 'center',
+  minWidth: 0,
+}
+
+/**
+ * 下拉框本体：透明无边框，只承担取值与交互（外观全在外框 div 上）。
+ *
+ * `appearance: none` 仍必需：不移除原生外观时聚焦态会走原生绘制路径，与外面的
+ * 外框叠加出重影/错位。官方 4 处自绘 select 也都声明了它。
+ * 右侧留 32px 给外框上的箭头（原生箭头被 appearance:none 移除）。
+ */
+export const selectControlStyle = {
+  appearance: 'none',
+  border: 'none',
+  background: 'none',
+  width: '100%',
+  height: '100%',
+  padding: '0 32px 0 12px',
+  font: 'inherit',
+  fontSize: '13px',
+  lineHeight: '1.5',
+  color: T.labelPrimary,
+  minWidth: 0,
 }
 
 /**

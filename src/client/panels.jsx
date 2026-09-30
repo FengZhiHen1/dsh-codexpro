@@ -13,7 +13,7 @@
 import { createElement as h, useState } from 'react'
 import { Checkbox, IconInfoOutlineRegular, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { BASH_MODES, HOSTNAME_REQUIRED_TUNNELS, TUNNEL_MODES, WRITE_MODES } from '../core/codexpro.js'
-import { HAIRLINE, R, T, captionText, fieldBox, fieldLabel, fieldStyle, groupBox, groupTitle, hintText, selectStyle } from './theme.js'
+import { HAIRLINE, R, T, captionText, fieldBox, fieldLabel, fieldStyle, groupBox, groupTitle, hintText, selectBoxStyle, selectControlStyle } from './theme.js'
 import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, needsTunnelName } from './form.js'
 
 /** tunnel 取值的下拉文案（取值来自 core 的权威词表）。 */
@@ -198,12 +198,13 @@ function NetworkGroup({ fields, disabled, onEdit }) {
       first: true,
       hint: '默认 none：只在本机可用，不暴露到公网',
       help: HELP.tunnelMode,
-    }, h('select', {
-      value: fields.tunnelMode.text,
+    }, h(SelectBox, {
+      width: '320px',
       disabled,
-      onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-      style: { ...selectStyle, maxWidth: '320px', cursor: disabled ? 'default' : 'pointer' },
-    }, TUNNEL_MODES.map((mode) => h('option', { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
+      value: fields.tunnelMode.text,
+      onChange: (next) => onEdit(TUNNEL_MODE, next),
+      options: TUNNEL_MODES.map((mode) => ({ value: mode, label: TUNNEL_LABELS[mode] ?? mode })),
+    })),
     needsHost
       ? h(FieldBox, {
         key: 'hostname',
@@ -264,6 +265,35 @@ function NetworkGroup({ fields, disabled, onEdit }) {
 }
 
 /**
+ * 下拉框：外框由 div 绘制，select 本体透明（见 theme.js 的 selectBoxStyle 说明）。
+ *
+ * 走查事故 2026-09-30：用户环境里 `<select>` 自身的 border 直边一个像素都不画
+ * （只剩圆角弧），而 div 与 input 的边框完整。故外框移到 div，select 只作交互层。
+ * @param {object} props 组件属性
+ * @param {string} props.width 外框宽度（如 '320px'）
+ * @param {boolean} props.disabled 是否禁用
+ * @param {string} props.value 当前取值
+ * @param {Function} props.onChange 取值变化回调（收到新值）
+ * @param {Array<{value: string, label: string}>} props.options 选项
+ * @returns {object} React 元素
+ */
+function SelectBox({ width, disabled, value, onChange, options }) {
+  return h('div', {
+    style: {
+      ...selectBoxStyle,
+      width,
+      maxWidth: '100%',
+      opacity: disabled ? 0.5 : 1,
+    },
+  }, h('select', {
+    value,
+    disabled,
+    onChange: (event) => onChange(event.target.value),
+    style: { ...selectControlStyle, cursor: disabled ? 'default' : 'pointer' },
+  }, options.map((item) => h('option', { key: item.value, value: item.value }, item.label))))
+}
+
+/**
  * 参数字段组：网络 / 权限两组。
  * @param {object} props 组件属性
  * @param {object} props.fields 各字段的官方状态（text/overridden/invalid）
@@ -282,23 +312,25 @@ export function OptionsFields({ fields, disabled, onEdit, onReset }) {
         first: true,
         hint: 'safe 覆盖大多数场景；full 等同于你自己在终端操作',
         help: HELP.bashMode,
-      }, h('select', {
-        value: fields.bashMode.text,
+      }, h(SelectBox, {
+        width: '140px',
         disabled,
-        onChange: (event) => onEdit(BASH_MODE, event.target.value),
-        style: { ...selectStyle, maxWidth: '140px', cursor: disabled ? 'default' : 'pointer' },
-      }, BASH_MODES.map((mode) => h('option', { key: mode, value: mode }, mode)))),
+        value: fields.bashMode.text,
+        onChange: (next) => onEdit(BASH_MODE, next),
+        options: BASH_MODES.map((mode) => ({ value: mode, label: mode })),
+      })),
       h(FieldBox, {
         key: 'write',
         label: '写入模式',
         hint: 'workspace 允许在已授权目录内直接读写',
         help: HELP.writeMode,
-      }, h('select', {
-        value: fields.writeMode.text,
+      }, h(SelectBox, {
+        width: '140px',
         disabled,
-        onChange: (event) => onEdit(WRITE_MODE, event.target.value),
-        style: { ...selectStyle, maxWidth: '140px', cursor: disabled ? 'default' : 'pointer' },
-      }, WRITE_MODES.map((mode) => h('option', { key: mode, value: mode }, mode)))),
+        value: fields.writeMode.text,
+        onChange: (next) => onEdit(WRITE_MODE, next),
+        options: WRITE_MODES.map((mode) => ({ value: mode, label: mode })),
+      })),
     ]),
   ])
 }

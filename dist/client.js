@@ -202,15 +202,32 @@ var fieldStyle = {
   minWidth: 0
 };
 var SELECT_CHEVRON = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`;
-var selectStyle = {
-  ...fieldStyle,
-  appearance: "none",
-  paddingRight: "32px",
+var selectBoxStyle = {
+  border: `${HAIRLINE} solid ${T.borderL4}`,
+  borderRadius: R.md,
+  backgroundColor: T.bgLayer3,
   backgroundImage: SELECT_CHEVRON,
   backgroundRepeat: "no-repeat",
   backgroundPosition: "right 12px center",
   backgroundSize: "12px 12px",
-  cursor: "pointer"
+  height: "34px",
+  boxSizing: "border-box",
+  display: "inline-flex",
+  alignItems: "center",
+  minWidth: 0
+};
+var selectControlStyle = {
+  appearance: "none",
+  border: "none",
+  background: "none",
+  width: "100%",
+  height: "100%",
+  padding: "0 32px 0 12px",
+  font: "inherit",
+  fontSize: "13px",
+  lineHeight: "1.5",
+  color: T.labelPrimary,
+  minWidth: 0
 };
 var STATE_DISPLAY = Object.freeze({
   idle: { label: "\u672A\u8FD0\u884C", kind: "idle" },
@@ -509,12 +526,13 @@ function NetworkGroup({ fields, disabled, onEdit }) {
       first: true,
       hint: "\u9ED8\u8BA4 none\uFF1A\u53EA\u5728\u672C\u673A\u53EF\u7528\uFF0C\u4E0D\u66B4\u9732\u5230\u516C\u7F51",
       help: HELP.tunnelMode
-    }, (0, import_react2.createElement)("select", {
-      value: fields.tunnelMode.text,
+    }, (0, import_react2.createElement)(SelectBox, {
+      width: "320px",
       disabled,
-      onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-      style: { ...selectStyle, maxWidth: "320px", cursor: disabled ? "default" : "pointer" }
-    }, TUNNEL_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
+      value: fields.tunnelMode.text,
+      onChange: (next) => onEdit(TUNNEL_MODE, next),
+      options: TUNNEL_MODES.map((mode) => ({ value: mode, label: TUNNEL_LABELS[mode] ?? mode }))
+    })),
     needsHost ? (0, import_react2.createElement)(FieldBox, {
       key: "hostname",
       label: "\u516C\u7F51 hostname",
@@ -567,6 +585,21 @@ function NetworkGroup({ fields, disabled, onEdit }) {
     }), fields.port.invalid ? (0, import_react2.createElement)("p", { key: "bad", style: { ...hintText, color: T.error } }, "\u7AEF\u53E3\u9700\u4E3A 1\u201365535 \u7684\u6574\u6570") : null)
   ]);
 }
+function SelectBox({ width, disabled, value, onChange, options }) {
+  return (0, import_react2.createElement)("div", {
+    style: {
+      ...selectBoxStyle,
+      width,
+      maxWidth: "100%",
+      opacity: disabled ? 0.5 : 1
+    }
+  }, (0, import_react2.createElement)("select", {
+    value,
+    disabled,
+    onChange: (event) => onChange(event.target.value),
+    style: { ...selectControlStyle, cursor: disabled ? "default" : "pointer" }
+  }, options.map((item) => (0, import_react2.createElement)("option", { key: item.value, value: item.value }, item.label))));
+}
 function OptionsFields({ fields, disabled, onEdit, onReset }) {
   return (0, import_react2.createElement)("div", null, [
     (0, import_react2.createElement)(NetworkGroup, { key: "net", fields, disabled, onEdit }),
@@ -577,23 +610,25 @@ function OptionsFields({ fields, disabled, onEdit, onReset }) {
         first: true,
         hint: "safe \u8986\u76D6\u5927\u591A\u6570\u573A\u666F\uFF1Bfull \u7B49\u540C\u4E8E\u4F60\u81EA\u5DF1\u5728\u7EC8\u7AEF\u64CD\u4F5C",
         help: HELP.bashMode
-      }, (0, import_react2.createElement)("select", {
-        value: fields.bashMode.text,
+      }, (0, import_react2.createElement)(SelectBox, {
+        width: "140px",
         disabled,
-        onChange: (event) => onEdit(BASH_MODE, event.target.value),
-        style: { ...selectStyle, maxWidth: "140px", cursor: disabled ? "default" : "pointer" }
-      }, BASH_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode)))),
+        value: fields.bashMode.text,
+        onChange: (next) => onEdit(BASH_MODE, next),
+        options: BASH_MODES.map((mode) => ({ value: mode, label: mode }))
+      })),
       (0, import_react2.createElement)(FieldBox, {
         key: "write",
         label: "\u5199\u5165\u6A21\u5F0F",
         hint: "workspace \u5141\u8BB8\u5728\u5DF2\u6388\u6743\u76EE\u5F55\u5185\u76F4\u63A5\u8BFB\u5199",
         help: HELP.writeMode
-      }, (0, import_react2.createElement)("select", {
-        value: fields.writeMode.text,
+      }, (0, import_react2.createElement)(SelectBox, {
+        width: "140px",
         disabled,
-        onChange: (event) => onEdit(WRITE_MODE, event.target.value),
-        style: { ...selectStyle, maxWidth: "140px", cursor: disabled ? "default" : "pointer" }
-      }, WRITE_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode))))
+        value: fields.writeMode.text,
+        onChange: (next) => onEdit(WRITE_MODE, next),
+        options: WRITE_MODES.map((mode) => ({ value: mode, label: mode }))
+      }))
     ])
   ]);
 }

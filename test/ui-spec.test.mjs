@@ -513,28 +513,35 @@ test('全圆胶囊必须成对声明 corner-shape: round（官方 Pill/Tag 同�
   assert.equal(theme.pillBase.cornerShape, 'round', '全圆角必须配 cornerShape: round，否则方角化')
 })
 
-test('自绘 select 必须声明 appearance: none（否则聚焦态丢框）', async () => {
-  // 走查事故（2026-09-30）：用户报「选完值胶囊框消失，点旁边才回来」。
-  // 根因是原生 <select> 未移除原生外观——聚焦态（下拉关闭后 select 仍聚焦）按原生绘制，
-  // 盖掉作者声明的描边与圆角；失焦后作者样式恢复，框又出现。官方 4 处自绘 select
-  // （ModelsSection / InputBar / AgentPresetSection / SettingsForm）无一例外都声明了它。
+test('下拉框外观由 div 外框承担，select 本体透明（走查事故 2026-09-30）', async () => {
+  // 事故：用户环境里 `appearance: none` 之后，`<select>` 自身的 border 直边一个像素都不画
+  // （截图像素扫描：顶/底边暗像素 0/191，仅剩圆角弧），而同一页 div 与 input 的边框四边完整。
+  // 故外框移到 div，select 只作透明交互层——用经证据证明可靠的元素来画框。
   const theme = await import('../src/client/theme.js')
-  assert.equal(theme.selectStyle.appearance, 'none', 'select 必须移除原生外观')
 
-  // 原生箭头随 appearance:none 一并消失，故必须自绘并给它留出右侧空间。
-  assert.match(theme.selectStyle.backgroundImage, /^url\("data:image\/svg\+xml/,
-    '应内联自绘箭头（data-URI），不能依赖原生箭头')
-  assert.equal(theme.selectStyle.backgroundRepeat, 'no-repeat')
-  assert.equal(theme.selectStyle.backgroundSize, '12px 12px')
-  assert.ok(Number.parseInt(theme.selectStyle.paddingRight, 10) >= 24,
-    `右侧内边距要给箭头留位，实际 ${theme.selectStyle.paddingRight}`)
+  // 外框：div 承担描边/圆角/底色/箭头。
+  assert.ok(theme.selectBoxStyle.border.startsWith(`${theme.HAIRLINE} `),
+    '外框应有 0.5px 描边')
+  assert.match(theme.selectBoxStyle.borderRadius, /^var\(--dsw-radius-/,
+    '圆角走 token')
+  assert.equal(theme.selectBoxStyle.height, '34px', '外框高度对齐官方 .input')
+  assert.equal(theme.selectBoxStyle.boxSizing, 'border-box')
+  assert.match(theme.selectBoxStyle.backgroundImage, /^url\("data:image\/svg\+xml/,
+    '箭头画在外框上，不依赖 select 自身绘制')
+  assert.equal(theme.selectBoxStyle.backgroundRepeat, 'no-repeat')
+  assert.equal(theme.selectBoxStyle.backgroundSize, '12px 12px')
 
-  // 底色须为 backgroundColor 长写：简写 `background` 会重置 background-image 为 none，
-  // 与同对象的箭头图冲突（胜负取决于键顺序）。
-  assert.equal(theme.selectStyle.background, undefined, '不得用 background 简写（会清掉箭头图）')
-  assert.equal(theme.selectStyle.backgroundColor, theme.fieldStyle.backgroundColor)
+  // select 本体：无边框无底色，仍须 appearance:none（否则聚焦态原生绘制会与外框叠加）。
+  assert.equal(theme.selectControlStyle.appearance, 'none')
+  assert.equal(theme.selectControlStyle.border, 'none', 'select 自身不再画边框')
+  // 右内边距给外框上的箭头留位（用 padding 简写表达：上 右 下 左）。
+  const pad = String(theme.selectControlStyle.padding).split(/\s+/)
+  assert.ok(Number.parseInt(pad[1], 10) >= 24,
+    `右内边距要给外框箭头留位，实际 padding=${theme.selectControlStyle.padding}`)
+  // 旧的单元素方案不应再被使用：它正是出问题的那条路径。
+  assert.equal(theme.selectStyle, undefined, '不应再导出把 border 画在 select 上的 selectStyle')
 
-  // 三个 select 都必须用 selectStyle，不能有漏网的裸 fieldStyle。
+  // 端到端：三个下拉框都被 SelectBox 包裹（div 外框 + 内层 select），且不带内联 border。
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
@@ -542,9 +549,15 @@ test('自绘 select 必须声明 appearance: none（否则聚焦态丢框）', a
     const selects = findAll(tree, (el) => el.type === 'select')
     assert.ok(selects.length >= 3, `应有三个下拉框，实际 ${selects.length}`)
     for (const select of selects) {
-      assert.equal(select.props.style.appearance, 'none',
-        '每个 select 都须声明 appearance: none')
+      assert.equal(select.props.style.border, 'none', 'select 自身不应画边框')
+      assert.equal(select.props.style.appearance, 'none')
     }
+    // 外框 div 必须真实存在并带描边。
+    const boxes = findAll(tree, (el) => el.type === 'div'
+      && typeof el.props?.style?.border === 'string'
+      && el.props.style.border.includes('0.5px solid')
+      && el.props.style.backgroundImage)
+    assert.ok(boxes.length >= 3, `每个下拉框都应有一个 div 外框，实际 ${boxes.length}`)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
