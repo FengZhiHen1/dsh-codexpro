@@ -167,11 +167,15 @@ export const groupBox = (first = false) => ({
 
 /**
  * 文本输入基元（对齐官方 fields.module.css 的 .input：34px 高、radius-md、border-l4）。
+ *
+ * 底色用 `backgroundColor` 长写而非 `background` 简写：简写会把 background-image 重置为
+ * `none`，而 selectStyle 要在此之上叠加箭头图；同一个 style 对象里简写与长写的胜负取决于
+ * 键顺序，分开写可消除这个隐患。
  */
 export const fieldStyle = {
   border: `${HAIRLINE} solid ${T.borderL4}`,
   borderRadius: R.md,
-  background: T.bgLayer3,
+  backgroundColor: T.bgLayer3,
   padding: '0 12px',
   height: '34px',
   font: 'inherit',
@@ -179,6 +183,36 @@ export const fieldStyle = {
   lineHeight: '1.5',
   color: T.labelPrimary,
   minWidth: 0,
+}
+
+/**
+ * 下拉箭头：官方 `ModelsSection.module.css` 的 data-URI SVG（逐字同值）。
+ *
+ * SVG 内的颜色不能写成 CSS 变量（data-URI 不参与变量解析），故官方取 `#81858C`
+ * ——其源码注释原文："#81858C is the caption gray shared by both themes"。
+ */
+const SELECT_CHEVRON = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")"
+
+/**
+ * 下拉框（`<select>`）样式：官方 `ModelsSection.module.css` 的 `.selectInput`。
+ *
+ * `appearance: none` 是必需的，不是可选美化。缺它时 Chrome 仍按原生外观绘制控件：
+ * 聚焦态（下拉关闭后 select 仍聚焦）会盖掉作者声明的描边与圆角，表现为「选完值胶囊框消失、
+ * 点别处才回来」；失焦后作者样式恢复，框又出现。官方 4 处自绘 select
+ * （ModelsSection / InputBar / AgentPresetSection / SettingsForm）无一例外都声明了它。
+ *
+ * 右侧留 32px 给箭头（原生箭头被 appearance:none 移除，须自绘）。
+ * 不设 `outline: none`：保留默认聚焦环，键盘可达性不受影响。
+ */
+export const selectStyle = {
+  ...fieldStyle,
+  appearance: 'none',
+  paddingRight: '32px',
+  backgroundImage: SELECT_CHEVRON,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 12px center',
+  backgroundSize: '12px 12px',
+  cursor: 'pointer',
 }
 
 /**

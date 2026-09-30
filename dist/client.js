@@ -192,7 +192,7 @@ var groupBox = (first = false) => ({
 var fieldStyle = {
   border: `${HAIRLINE} solid ${T.borderL4}`,
   borderRadius: R.md,
-  background: T.bgLayer3,
+  backgroundColor: T.bgLayer3,
   padding: "0 12px",
   height: "34px",
   font: "inherit",
@@ -200,6 +200,17 @@ var fieldStyle = {
   lineHeight: "1.5",
   color: T.labelPrimary,
   minWidth: 0
+};
+var SELECT_CHEVRON = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`;
+var selectStyle = {
+  ...fieldStyle,
+  appearance: "none",
+  paddingRight: "32px",
+  backgroundImage: SELECT_CHEVRON,
+  backgroundRepeat: "no-repeat",
+  backgroundPosition: "right 12px center",
+  backgroundSize: "12px 12px",
+  cursor: "pointer"
 };
 var STATE_DISPLAY = Object.freeze({
   idle: { label: "\u672A\u8FD0\u884C", kind: "idle" },
@@ -502,7 +513,7 @@ function NetworkGroup({ fields, disabled, onEdit }) {
       value: fields.tunnelMode.text,
       disabled,
       onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-      style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "320px" }
+      style: { ...selectStyle, maxWidth: "320px", cursor: disabled ? "default" : "pointer" }
     }, TUNNEL_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
     needsHost ? (0, import_react2.createElement)(FieldBox, {
       key: "hostname",
@@ -570,7 +581,7 @@ function OptionsFields({ fields, disabled, onEdit, onReset }) {
         value: fields.bashMode.text,
         disabled,
         onChange: (event) => onEdit(BASH_MODE, event.target.value),
-        style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "140px" }
+        style: { ...selectStyle, maxWidth: "140px", cursor: disabled ? "default" : "pointer" }
       }, BASH_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode)))),
       (0, import_react2.createElement)(FieldBox, {
         key: "write",
@@ -581,7 +592,7 @@ function OptionsFields({ fields, disabled, onEdit, onReset }) {
         value: fields.writeMode.text,
         disabled,
         onChange: (event) => onEdit(WRITE_MODE, event.target.value),
-        style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "140px" }
+        style: { ...selectStyle, maxWidth: "140px", cursor: disabled ? "default" : "pointer" }
       }, WRITE_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode))))
     ])
   ]);

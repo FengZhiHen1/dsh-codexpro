@@ -13,7 +13,7 @@
 import { createElement as h, useState } from 'react'
 import { Checkbox, IconInfoOutlineRegular, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { BASH_MODES, HOSTNAME_REQUIRED_TUNNELS, TUNNEL_MODES, WRITE_MODES } from '../core/codexpro.js'
-import { HAIRLINE, R, T, captionText, fieldBox, fieldLabel, fieldStyle, groupBox, groupTitle, hintText } from './theme.js'
+import { HAIRLINE, R, T, captionText, fieldBox, fieldLabel, fieldStyle, groupBox, groupTitle, hintText, selectStyle } from './theme.js'
 import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, needsTunnelName } from './form.js'
 
 /** tunnel 取值的下拉文案（取值来自 core 的权威词表）。 */
@@ -202,7 +202,7 @@ function NetworkGroup({ fields, disabled, onEdit }) {
       value: fields.tunnelMode.text,
       disabled,
       onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-      style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '320px' },
+      style: { ...selectStyle, maxWidth: '320px', cursor: disabled ? 'default' : 'pointer' },
     }, TUNNEL_MODES.map((mode) => h('option', { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
     needsHost
       ? h(FieldBox, {
@@ -286,7 +286,7 @@ export function OptionsFields({ fields, disabled, onEdit, onReset }) {
         value: fields.bashMode.text,
         disabled,
         onChange: (event) => onEdit(BASH_MODE, event.target.value),
-        style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '140px' },
+        style: { ...selectStyle, maxWidth: '140px', cursor: disabled ? 'default' : 'pointer' },
       }, BASH_MODES.map((mode) => h('option', { key: mode, value: mode }, mode)))),
       h(FieldBox, {
         key: 'write',
@@ -297,7 +297,7 @@ export function OptionsFields({ fields, disabled, onEdit, onReset }) {
         value: fields.writeMode.text,
         disabled,
         onChange: (event) => onEdit(WRITE_MODE, event.target.value),
-        style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '140px' },
+        style: { ...selectStyle, maxWidth: '140px', cursor: disabled ? 'default' : 'pointer' },
       }, WRITE_MODES.map((mode) => h('option', { key: mode, value: mode }, mode)))),
     ]),
   ])

@@ -513,6 +513,43 @@ test('全圆胶囊必须成对声明 corner-shape: round（官方 Pill/Tag 同�
   assert.equal(theme.pillBase.cornerShape, 'round', '全圆角必须配 cornerShape: round，否则方角化')
 })
 
+test('自绘 select 必须声明 appearance: none（否则聚焦态丢框）', async () => {
+  // 走查事故（2026-09-30）：用户报「选完值胶囊框消失，点旁边才回来」。
+  // 根因是原生 <select> 未移除原生外观——聚焦态（下拉关闭后 select 仍聚焦）按原生绘制，
+  // 盖掉作者声明的描边与圆角；失焦后作者样式恢复，框又出现。官方 4 处自绘 select
+  // （ModelsSection / InputBar / AgentPresetSection / SettingsForm）无一例外都声明了它。
+  const theme = await import('../src/client/theme.js')
+  assert.equal(theme.selectStyle.appearance, 'none', 'select 必须移除原生外观')
+
+  // 原生箭头随 appearance:none 一并消失，故必须自绘并给它留出右侧空间。
+  assert.match(theme.selectStyle.backgroundImage, /^url\("data:image\/svg\+xml/,
+    '应内联自绘箭头（data-URI），不能依赖原生箭头')
+  assert.equal(theme.selectStyle.backgroundRepeat, 'no-repeat')
+  assert.equal(theme.selectStyle.backgroundSize, '12px 12px')
+  assert.ok(Number.parseInt(theme.selectStyle.paddingRight, 10) >= 24,
+    `右侧内边距要给箭头留位，实际 ${theme.selectStyle.paddingRight}`)
+
+  // 底色须为 backgroundColor 长写：简写 `background` 会重置 background-image 为 none，
+  // 与同对象的箭头图冲突（胜负取决于键顺序）。
+  assert.equal(theme.selectStyle.background, undefined, '不得用 background 简写（会清掉箭头图）')
+  assert.equal(theme.selectStyle.backgroundColor, theme.fieldStyle.backgroundColor)
+
+  // 三个 select 都必须用 selectStyle，不能有漏网的裸 fieldStyle。
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const tree = await renderCard(card, globalThis.__REACT_STUB__)
+    const selects = findAll(tree, (el) => el.type === 'select')
+    assert.ok(selects.length >= 3, `应有三个下拉框，实际 ${selects.length}`)
+    for (const select of selects) {
+      assert.equal(select.props.style.appearance, 'none',
+        '每个 select 都须声明 appearance: none')
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('中性实线边框一律 0.5px，半径走 token（无离格字面量）', async () => {
   const theme = await import('../src/client/theme.js')
   assert.equal(theme.HAIRLINE, '0.5px')
