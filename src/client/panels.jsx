@@ -153,15 +153,25 @@ function FieldBox({ label, hint, help, first, children }) {
 }
 
 /**
- * 分组小标题。
+ * 分组：官方 `SubagentCard` 的 section 形态（h3 标题 + 内容 + 上下分节留白）。
+ *
+ * 标题用 id + aria-labelledby 与 section 关联（官方同形），使读屏能报出「哪个分组的字段」。
+ * `trailing` 放在标题同一行（官方 `.groupHead` 的计数位），用于「已选 N / M」这类计数。
  * @param {object} props 组件属性
+ * @param {string} props.id 分组 id（用于标题与 section 的 aria 关联）
  * @param {string} props.title 标题
  * @param {string} [props.note] 一句话说明
+ * @param {object} [props.trailing] 标题行右侧的附加内容（如计数）
+ * @param {boolean} [props.first] 是否首个分组（首个不画顶线）
  * @returns {object} React 元素
  */
-function Group({ title, note, children }) {
-  return h('section', { style: groupBox }, [
-    h('h3', { key: 't', style: groupTitle }, title),
+function Group({ id, title, note, trailing, first, children }) {
+  const headingId = `codexpro-group-${id}`
+  return h('section', { style: groupBox(first), 'aria-labelledby': headingId }, [
+    h('div', { key: 'head', style: { display: 'flex', alignItems: 'baseline', gap: '8px' } }, [
+      h('h3', { key: 't', id: headingId, style: groupTitle }, title),
+      trailing ?? null,
+    ]),
     note ? h('p', { key: 'n', style: { ...hintText, margin: '2px 0 0' } }, note) : null,
     children,
   ])
@@ -181,7 +191,7 @@ function Group({ title, note, children }) {
 function NetworkGroup({ fields, disabled, onEdit }) {
   const needsHost = NEEDS_HOSTNAME.has(fields.tunnelMode.text)
   const needsName = needsTunnelName(fields.tunnelMode.text)
-  return h(Group, { title: '网络接入', note: 'ChatGPT 通过哪个地址连到本机。改完需重启进程才生效。' }, [
+  return h(Group, { id: 'network', title: '网络接入', first: true, note: 'ChatGPT 通过哪个地址连到本机。改完需重启进程才生效。' }, [
     h(FieldBox, {
       key: 'tunnel',
       label: 'Tunnel 方式',
@@ -265,7 +275,7 @@ function NetworkGroup({ fields, disabled, onEdit }) {
 export function OptionsFields({ fields, disabled, onEdit, onReset }) {
   return h('div', null, [
     h(NetworkGroup, { key: 'net', fields, disabled, onEdit }),
-    h(Group, { key: 'perm', title: '权限', note: '决定 ChatGPT 能在你的项目里做到什么程度，是风险控制的主要开关。' }, [
+    h(Group, { key: 'perm', id: 'permission', title: '权限', note: '决定 ChatGPT 能在你的项目里做到什么程度，是风险控制的主要开关。' }, [
       h(FieldBox, {
         key: 'bash',
         label: 'bash 模式',
@@ -324,15 +334,20 @@ export function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
   const list = Array.isArray(workspaces) ? workspaces : []
 
   return h(Group, {
+    id: 'workspaces',
     title: '授权工作区',
-    note: '未勾选的目录 ChatGPT 看不到。先在 DSH 里打开项目，它才会出现在这里。',
-  }, [
-    h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' } }, [
-      h('span', { key: 'l', style: fieldLabel }, list.length ? `已选 ${selected} / ${list.length}` : '暂无候选'),
+    note: '未勾选的目录 ChatGPT 看不到。',
+    // 计数与帮助按钮放标题行（官方 .groupHead 的计数位），使三组结构一致：
+    // 标题（+ 计数）→ 说明 → 内容。
+    trailing: h('span', { key: 'tail', style: { display: 'inline-flex', alignItems: 'center', gap: '4px' } }, [
+      list.length
+        ? h('span', { key: 'c', style: { ...captionText, fontVariantNumeric: 'tabular-nums' } }, `已选 ${selected} / ${list.length}`)
+        : null,
       h(Help, { key: 'help', id: 'codexpro-help-authorized', lines: HELP.authorized }),
     ]),
+  }, [
     list.length === 0
-      ? h('p', { key: 'empty', style: { ...hintText, marginTop: '6px' } },
+      ? h('p', { key: 'empty', style: { ...hintText, marginTop: '8px' } },
         '当前实例还没有工作区。在 DSH 里打开一个项目后，它就会出现在这里。')
       : h('div', {
         key: 'list',

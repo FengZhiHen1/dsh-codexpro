@@ -140,15 +140,30 @@ export const fieldBox = (first = false) => ({
 export const fieldLabel = { fontSize: '13px', fontWeight: 500, color: T.labelPrimary, lineHeight: '1.5' }
 
 /**
- * 分组小标题（官方设置节的 groupTitle：14px / 500 + 计数位）。
+ * 分组标题（官方 `ui-settings-subagent` 的 `.heading`：13px / 600 字重）。
  *
- * 分组不属于官方字段规格（官方一节内是平铺字段），是应「字段多了要能分得清」而加；
- * 故刻意比字段标签更重一档，并在其上方留出间距与分隔。
+ * 层级靠字重而非字号：字段标签是 13px/500，标题同为 13px 但 600，
+ * 两者仅在字重上分开。先前误用 14px/500 会让标题与字段标签几乎同重，
+ * 整片看起来是平的——这正是「分组不醒目」的机制。
  */
-export const groupTitle = { margin: 0, fontSize: '14px', fontWeight: 500, color: T.labelPrimary, lineHeight: '22px' }
+export const groupTitle = { margin: 0, fontSize: '13px', fontWeight: 600, color: T.labelPrimary, lineHeight: '1.5' }
 
-/** 分组容器：组与组之间用一条更明显的分隔，并留出呼吸空间。 */
-export const groupBox = { display: 'flex', flexDirection: 'column', gap: '2px', paddingTop: '16px' }
+/**
+ * 分组容器：官方 `SubagentCard` 的 `.section`（上下各 16px 分节留白）。
+ *
+ * 组间分隔刻意比组内字段分隔更强一档（0.5px border-l4 对 border-l2）：
+ * 两级分隔若同深，用户分不清「组与组」和「字段与字段」，分组等于白设。
+ * 首组不画顶线（避免与页面上方内容割裂），由 `first` 控制。
+ * @param {boolean} [first] 是否首个分组（首个不画顶线）
+ * @returns {object} 分组容器样式
+ */
+export const groupBox = (first = false) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+  padding: '16px 0',
+  borderTop: first ? 'none' : `${HAIRLINE} solid ${T.borderL4}`,
+})
 
 /**
  * 文本输入基元（对齐官方 fields.module.css 的 .input：34px 高、radius-md、border-l4）。

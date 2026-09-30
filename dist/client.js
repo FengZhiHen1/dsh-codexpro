@@ -181,8 +181,14 @@ var fieldBox = (first = false) => ({
   borderTop: first ? "none" : `${HAIRLINE} solid ${T.borderL2}`
 });
 var fieldLabel = { fontSize: "13px", fontWeight: 500, color: T.labelPrimary, lineHeight: "1.5" };
-var groupTitle = { margin: 0, fontSize: "14px", fontWeight: 500, color: T.labelPrimary, lineHeight: "22px" };
-var groupBox = { display: "flex", flexDirection: "column", gap: "2px", paddingTop: "16px" };
+var groupTitle = { margin: 0, fontSize: "13px", fontWeight: 600, color: T.labelPrimary, lineHeight: "1.5" };
+var groupBox = (first = false) => ({
+  display: "flex",
+  flexDirection: "column",
+  gap: "2px",
+  padding: "16px 0",
+  borderTop: first ? "none" : `${HAIRLINE} solid ${T.borderL4}`
+});
 var fieldStyle = {
   border: `${HAIRLINE} solid ${T.borderL4}`,
   borderRadius: R.md,
@@ -471,9 +477,13 @@ function FieldBox({ label, hint, help, first, children }) {
     hint ? (0, import_react2.createElement)("p", { key: "hint", style: hintText }, hint) : null
   ]);
 }
-function Group({ title, note, children }) {
-  return (0, import_react2.createElement)("section", { style: groupBox }, [
-    (0, import_react2.createElement)("h3", { key: "t", style: groupTitle }, title),
+function Group({ id, title, note, trailing, first, children }) {
+  const headingId = `codexpro-group-${id}`;
+  return (0, import_react2.createElement)("section", { style: groupBox(first), "aria-labelledby": headingId }, [
+    (0, import_react2.createElement)("div", { key: "head", style: { display: "flex", alignItems: "baseline", gap: "8px" } }, [
+      (0, import_react2.createElement)("h3", { key: "t", id: headingId, style: groupTitle }, title),
+      trailing ?? null
+    ]),
     note ? (0, import_react2.createElement)("p", { key: "n", style: { ...hintText, margin: "2px 0 0" } }, note) : null,
     children
   ]);
@@ -481,7 +491,7 @@ function Group({ title, note, children }) {
 function NetworkGroup({ fields, disabled, onEdit }) {
   const needsHost = NEEDS_HOSTNAME.has(fields.tunnelMode.text);
   const needsName = needsTunnelName(fields.tunnelMode.text);
-  return (0, import_react2.createElement)(Group, { title: "\u7F51\u7EDC\u63A5\u5165", note: "ChatGPT \u901A\u8FC7\u54EA\u4E2A\u5730\u5740\u8FDE\u5230\u672C\u673A\u3002\u6539\u5B8C\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002" }, [
+  return (0, import_react2.createElement)(Group, { id: "network", title: "\u7F51\u7EDC\u63A5\u5165", first: true, note: "ChatGPT \u901A\u8FC7\u54EA\u4E2A\u5730\u5740\u8FDE\u5230\u672C\u673A\u3002\u6539\u5B8C\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002" }, [
     (0, import_react2.createElement)(FieldBox, {
       key: "tunnel",
       label: "Tunnel \u65B9\u5F0F",
@@ -549,7 +559,7 @@ function NetworkGroup({ fields, disabled, onEdit }) {
 function OptionsFields({ fields, disabled, onEdit, onReset }) {
   return (0, import_react2.createElement)("div", null, [
     (0, import_react2.createElement)(NetworkGroup, { key: "net", fields, disabled, onEdit }),
-    (0, import_react2.createElement)(Group, { key: "perm", title: "\u6743\u9650", note: "\u51B3\u5B9A ChatGPT \u80FD\u5728\u4F60\u7684\u9879\u76EE\u91CC\u505A\u5230\u4EC0\u4E48\u7A0B\u5EA6\uFF0C\u662F\u98CE\u9669\u63A7\u5236\u7684\u4E3B\u8981\u5F00\u5173\u3002" }, [
+    (0, import_react2.createElement)(Group, { key: "perm", id: "permission", title: "\u6743\u9650", note: "\u51B3\u5B9A ChatGPT \u80FD\u5728\u4F60\u7684\u9879\u76EE\u91CC\u505A\u5230\u4EC0\u4E48\u7A0B\u5EA6\uFF0C\u662F\u98CE\u9669\u63A7\u5236\u7684\u4E3B\u8981\u5F00\u5173\u3002" }, [
       (0, import_react2.createElement)(FieldBox, {
         key: "bash",
         label: "bash \u6A21\u5F0F",
@@ -586,16 +596,19 @@ function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
   const selected = Object.keys(authorized).length;
   const list = Array.isArray(workspaces) ? workspaces : [];
   return (0, import_react2.createElement)(Group, {
+    id: "workspaces",
     title: "\u6388\u6743\u5DE5\u4F5C\u533A",
-    note: "\u672A\u52FE\u9009\u7684\u76EE\u5F55 ChatGPT \u770B\u4E0D\u5230\u3002\u5148\u5728 DSH \u91CC\u6253\u5F00\u9879\u76EE\uFF0C\u5B83\u624D\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002"
-  }, [
-    (0, import_react2.createElement)("div", { key: "head", style: { display: "flex", alignItems: "center", gap: "4px", marginTop: "6px" } }, [
-      (0, import_react2.createElement)("span", { key: "l", style: fieldLabel }, list.length ? `\u5DF2\u9009 ${selected} / ${list.length}` : "\u6682\u65E0\u5019\u9009"),
+    note: "\u672A\u52FE\u9009\u7684\u76EE\u5F55 ChatGPT \u770B\u4E0D\u5230\u3002",
+    // 计数与帮助按钮放标题行（官方 .groupHead 的计数位），使三组结构一致：
+    // 标题（+ 计数）→ 说明 → 内容。
+    trailing: (0, import_react2.createElement)("span", { key: "tail", style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, [
+      list.length ? (0, import_react2.createElement)("span", { key: "c", style: { ...captionText, fontVariantNumeric: "tabular-nums" } }, `\u5DF2\u9009 ${selected} / ${list.length}`) : null,
       (0, import_react2.createElement)(Help, { key: "help", id: "codexpro-help-authorized", lines: HELP.authorized })
-    ]),
+    ])
+  }, [
     list.length === 0 ? (0, import_react2.createElement)(
       "p",
-      { key: "empty", style: { ...hintText, marginTop: "6px" } },
+      { key: "empty", style: { ...hintText, marginTop: "8px" } },
       "\u5F53\u524D\u5B9E\u4F8B\u8FD8\u6CA1\u6709\u5DE5\u4F5C\u533A\u3002\u5728 DSH \u91CC\u6253\u5F00\u4E00\u4E2A\u9879\u76EE\u540E\uFF0C\u5B83\u5C31\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002"
     ) : (0, import_react2.createElement)("div", {
       key: "list",

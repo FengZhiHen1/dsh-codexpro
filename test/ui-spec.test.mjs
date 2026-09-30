@@ -409,26 +409,47 @@ test('无工作区时给出可行动提示而非空列表', async () => {
   }
 })
 
-test('字段按组分隔：每组有小标题，组内字段有相邻分隔线', async () => {
+test('两级分隔：组间比组内更醒目，且分组标题靠字重立层级', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
     const tree = await renderCard(card, control)
 
-    // 分组标题：h3（官方设置节的 groupTitle 形态）
-    const heads = findAll(tree, (el) => el.type === 'h3').map(textOf)
-    assert.ok(heads.includes('网络接入'), `应有「网络接入」分组，实际 ${JSON.stringify(heads)}`)
-    assert.ok(heads.includes('权限'), '应有「权限」分组')
-    assert.ok(heads.includes('授权工作区'), '应有「授权工作区」分组')
+    // 分组标题：h3（官方 SubagentCard 的 section + h3 形态）
+    const heads = findAll(tree, (el) => el.type === 'h3')
+    const headTexts = heads.map(textOf)
+    assert.ok(headTexts.includes('网络接入'), `应有「网络接入」分组，实际 ${JSON.stringify(headTexts)}`)
+    assert.ok(headTexts.includes('权限'), '应有「权限」分组')
+    assert.ok(headTexts.includes('授权工作区'), '应有「授权工作区」分组')
 
-    // 相邻分隔线：每个分组内首个字段无顶线，其余有 0.5px border-l2 顶线。
-    // 官方用 CSS 相邻选择器，内联样式表达不了，故这是显式控制的——漏掉它整片字段会连成一团。
-    const dividers = findAll(tree, (el) => typeof el.props?.style?.borderTop === 'string'
+    // 层级靠字重而非字号（官方 .heading：13px/600 对字段标签 13px/500）。
+    // 先前用 14px/500 会让标题与字段标签几乎同重，整片看起来是平的。
+    for (const head of heads) {
+      assert.equal(head.props.style.fontSize, '13px', '分组标题应为 13px（官方值）')
+      assert.equal(head.props.style.fontWeight, 600, '分组标题应为 600 字重，靠它和字段标签 500 拉开层级')
+    }
+
+    // 两级分隔线必须深浅不同，否则用户分不清「组与组」和「字段与字段」。
+    const lines = findAll(tree, (el) => typeof el.props?.style?.borderTop === 'string'
       && el.props.style.borderTop.includes('0.5px'))
-    assert.ok(dividers.length >= 2, `组内非首字段应有分隔线，实际命中 ${dividers.length}`)
-    assert.ok(dividers.every((el) => el.props.style.borderTop.includes('--dsw-alias-border-l2')),
-      '分隔线应走官方 border-l2 且为 0.5px')
+    const groupLines = lines.filter((el) => el.props.style.borderTop.includes('--dsw-alias-border-l4'))
+    const fieldLines = lines.filter((el) => el.props.style.borderTop.includes('--dsw-alias-border-l2'))
+    assert.ok(groupLines.length >= 2, `组间分隔应有两条以上（除首组），实际 ${groupLines.length}`)
+    assert.ok(fieldLines.length >= 2, `组内字段分隔应有两条以上，实际 ${fieldLines.length}`)
+
+    // 首组不画顶线：避免与页面上方内容割裂。
+    const sections = findAll(tree, (el) => el.type === 'section' && el.props?.['aria-labelledby'])
+    assert.equal(sections.length, 3, '应恰好三个分组')
+    assert.notEqual(sections[0].props.style.borderTop, sections[1].props.style.borderTop,
+      '首组不画顶线，其余组画——故首组与第二组的样式必须不同')
+
+    // section 与标题经 aria-labelledby 关联（官方 SubagentCard 同形）。
+    for (const section of sections) {
+      assert.equal(typeof section.props['aria-labelledby'], 'string')
+      const titled = heads.some((head) => head.props.id === section.props['aria-labelledby'])
+      assert.ok(titled, `分组 section 应指向存在的标题 id，实际 ${section.props['aria-labelledby']}`)
+    }
   } finally {
     await rm(root, { recursive: true, force: true })
   }
