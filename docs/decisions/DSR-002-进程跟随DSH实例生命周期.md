@@ -32,9 +32,9 @@ codexpro 是长驻 CLI：`start` 会拉起 `dist/http.js` server 子进程，并
 
 - DSH 实例关闭 ⇒ codexpro 及其 tunnel 一并终止（AC-06）。
 - DSH 实例重启后需在设置页重新点击启动（已知取舍，接受）。
-- 终止路径经 `handle.terminate()` + `waitForExit()`，不经外部信号。
-- 若实测证明进程容器未激活，整树终止退化为该 seam 的 fallback 能力；届时须补充残留检测与提示（登记于 `TODO.md`）。
-- **不做孤儿认领**：无句柄时杀进程风险高于收益，残留改为状态面可见提示。
+- 显式停止走 stdin `q` 主路径，`handle.terminate()` + `waitForExit()` 为兜底（DSR-007）。
+- 整树终止依赖 Windows 进程容器；其可用性已实测确认（DSR-008）。
+- **不做孤儿认领**：无句柄时杀进程风险高于收益；崩溃残留的 runtime 文件由 codexpro 自行回收。
 
 **波及文档**：`需求.md`（C-04、AC-05、AC-06）、`技术栈设计.md` §五/§七、`项目结构设计.md` §四、`technical-details/进程管理.md` §五/§六/§七。
 
