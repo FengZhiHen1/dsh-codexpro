@@ -12,6 +12,8 @@ export const T = {
   bgBase: 'var(--dsw-alias-bg-base)',
   bgLayer2: 'var(--dsw-alias-bg-layer-2)',
   bgLayer3: 'var(--dsw-alias-bg-layer-3)',
+  /** 官方面层：hover 与展开态用（fields.module.css 的 helpButton:hover）。 */
+  bgLayer4: 'var(--dsw-alias-bg-layer-4)',
   bgModulePlatform: 'var(--dsw-alias-bg-module-platform)',
   borderL1: 'var(--dsw-alias-border-l1)',
   borderL2: 'var(--dsw-alias-border-l2)',
@@ -114,14 +116,52 @@ export const noteText = { fontSize: '13px', color: T.labelTertiary, lineHeight: 
 /** 更弱一级文本（官方 caption，用于计数与最弱说明）。 */
 export const captionText = { fontSize: '12px', color: T.labelCaption, lineHeight: '18px' }
 
-/** 文本输入基元（原生设置同构：浅底小圆角、0.5px 描边）。 */
+/** 字段说明文本（官方 fields.module.css 的 .hint：12px tertiary）。 */
+export const hintText = { margin: 0, fontSize: '12px', color: T.labelTertiary, lineHeight: '1.5' }
+
+/**
+ * 一个字段的外框：官方 `.field` 的几何（padding 12px 0 / gap 6px）。
+ *
+ * 与官方的唯一差异是分隔线：官方用 `.field + .field { border-top }` 的相邻选择器，
+ * 内联样式表达不了，故由调用方按「是否首个字段」显式传 `first`；
+ * 不传则一律画线——漏画会让整片字段连成一团，正是「没有分组」观感的来源。
+ * @param {boolean} [first] 是否为该组首个字段（首个不画顶线）
+ * @returns {object} 字段容器样式
+ */
+export const fieldBox = (first = false) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '6px',
+  padding: '12px 0',
+  borderTop: first ? 'none' : `${HAIRLINE} solid ${T.borderL2}`,
+})
+
+/** 字段标签（官方 .label：13px / 500 字重）。 */
+export const fieldLabel = { fontSize: '13px', fontWeight: 500, color: T.labelPrimary, lineHeight: '1.5' }
+
+/**
+ * 分组小标题（官方设置节的 groupTitle：14px / 500 + 计数位）。
+ *
+ * 分组不属于官方字段规格（官方一节内是平铺字段），是应「字段多了要能分得清」而加；
+ * 故刻意比字段标签更重一档，并在其上方留出间距与分隔。
+ */
+export const groupTitle = { margin: 0, fontSize: '14px', fontWeight: 500, color: T.labelPrimary, lineHeight: '22px' }
+
+/** 分组容器：组与组之间用一条更明显的分隔，并留出呼吸空间。 */
+export const groupBox = { display: 'flex', flexDirection: 'column', gap: '2px', paddingTop: '16px' }
+
+/**
+ * 文本输入基元（对齐官方 fields.module.css 的 .input：34px 高、radius-md、border-l4）。
+ */
 export const fieldStyle = {
-  border: `${HAIRLINE} solid ${T.borderL2}`,
-  borderRadius: R.sm,
+  border: `${HAIRLINE} solid ${T.borderL4}`,
+  borderRadius: R.md,
   background: T.bgLayer3,
-  padding: '4px 8px',
+  padding: '0 12px',
+  height: '34px',
   font: 'inherit',
   fontSize: '13px',
+  lineHeight: '1.5',
   color: T.labelPrimary,
   minWidth: 0,
 }

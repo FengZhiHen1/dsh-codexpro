@@ -2,35 +2,166 @@
 //
 // 边界：控件只报告用户意图（onEdit / onToggle），不自行写盘——写入由官方
 // SettingsFormModel 在「保存」时一次性完成。
-// 官方字段原语只有文本（SettingsValueField）与 write-only 密钥，没有 select / boolean，
-// 故 select 与复选框在此自绘，但草稿仍走官方模型的 edit/resetField（knowledge/client/15 §4）。
+// 官方字段原语只有文本（SettingsValueField）与 write-only 密钥（SettingsSecretField），
+// 没有 select / boolean，故 select、复选框与分组标题在此自绘，但草稿仍走官方模型的
+// edit / resetField（knowledge/client/15 §4）。
+// 几何逐项对齐官方 `.field`（padding 12px 0 / gap 6px / label 500 字重 / 相邻分隔线）；
+// 相邻分隔线官方用 CSS 相邻选择器，内联样式表达不了，故由 first 参数显式控制。
+// 帮助文案的事实来源：codexpro `--help`（本机 0.30.2）与其 profile 字段，非推测。
 // 参考：knowledge/client/15 §4；官方 ui-settings-subagent 的 SubagentLimitsFields.tsx。
 
-import { createElement as h } from 'react'
-import { Checkbox, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { createElement as h, useState } from 'react'
+import { Checkbox, IconInfoOutlineRegular, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { BASH_MODES, HOSTNAME_REQUIRED_TUNNELS, TUNNEL_MODES, WRITE_MODES } from '../core/codexpro.js'
-import { HAIRLINE, R, T, captionText, fieldStyle, noteText } from './theme.js'
+import { HAIRLINE, R, T, captionText, fieldBox, fieldLabel, fieldStyle, groupBox, groupTitle, hintText } from './theme.js'
 import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, WRITE_MODE } from './form.js'
 
-/** tunnel 取值的展示说明；取值本身取自 core 的权威词表，避免两半侧漂移。 */
+/** tunnel 取值的下拉文案（取值来自 core 的权威词表）。 */
 const TUNNEL_LABELS = {
-  none: 'none（仅本地，不产生公网入口）',
-  ngrok: 'ngrok（稳定 dev domain）',
-  cloudflare: 'cloudflare（quick tunnel，URL 每次重启都变）',
-  'cloudflare-named': 'cloudflare-named（具名隧道，URL 稳定）',
-  tailscale: 'tailscale（Funnel）',
+  none: 'none — 仅本地，无公网入口',
+  ngrok: 'ngrok — 稳定 dev domain',
+  cloudflare: 'cloudflare — 快速隧道（URL 每次重启都变）',
+  'cloudflare-named': 'cloudflare-named — 具名隧道（URL 稳定）',
+  tailscale: 'tailscale — Funnel',
 }
 
 /** 需要公网 hostname 的 tunnel 取值（权威定义在 core/codexpro.js）。 */
 const NEEDS_HOSTNAME = new Set(HOSTNAME_REQUIRED_TUNNELS)
 
-/** 已覆盖徽标文案（官方 SettingsValueField 需要 overriddenLabel）。 */
-const OVERRIDDEN = '已覆盖'
-/** 重置控件文案。 */
-const RESET = '重置'
+/**
+ * 解释性帮助文本（点「?」展开）。文案取自 codexpro `--help` 与其 profile 语义。
+ * @type {Readonly<Record<string, string[]>>}
+ */
+const HELP = {
+  tunnelMode: [
+    '决定 ChatGPT 用什么地址连到本机 codexpro。默认 none，只在你这台机器上可用。',
+    'none：不产生公网入口，只在本机浏览器/客户端可用。最安全的默认值。',
+    'cloudflare：免配置快速隧道，但每次重启进程都会换一个新 URL，需要重新贴给 ChatGPT。适合临时试用。',
+    'cloudflare-named：需先在 Cloudflare 建好具名隧道，URL 固定不变。适合长期使用。',
+    'ngrok：用 ngrok 的固定 dev domain，URL 稳定；需本机已安装并登录 ngrok。',
+    'tailscale：走 Tailscale Funnel，适合已有 Tailscale 网络的场景。',
+    '注意：除 none 外都会把这个本地服务暴露到公网，请确保已设置可信的访问 token。',
+  ],
+  tunnelHostname: [
+    '公网上面向 ChatGPT 的那个域名，必须与所选 tunnel 方式对应：',
+    'ngrok：形如 your-domain.ngrok-free.dev（ngrok 后台里的 dev domain）。',
+    'cloudflare-named：你在 Cloudflare 为该隧道绑定的自定义域名。',
+    'tailscale：形如 your-device.your-tailnet.ts.net（Tailscale 分配的节点名）。',
+    '填错不会立刻报错，但 ChatGPT 会连不上——它解析的就是这个域名。',
+  ],
+  port: [
+    'codexpro 在本机监听的端口，默认 8787。',
+    '只有本机端口冲突（例如别的程序已占用 8787）时才需要改。',
+    '取值必须是 1–65535 的整数。改为非默认值后，请确认没有其他服务占用该端口。',
+  ],
+  bashMode: [
+    '决定 ChatGPT 能在你的项目里执行什么命令。',
+    'off：完全禁止执行命令，只做文件读写。最保守。',
+    'safe：允许常见的检查与测试类命令（如查看文件、跑测试），运行时按白名单筛选。',
+    'full：允许任意 shell 命令，权限等同于你自己在终端里操作。仅在完全信任的仓库里使用。',
+    '这个开关直接决定风险大小：不确定时保持 safe。',
+  ],
+  writeMode: [
+    '决定 ChatGPT 能否改动你的文件。',
+    'off：只读，禁止任何写入。',
+    'handoff：不改动文件，而是把实现计划写成 .ai-bridge 交接文件，交给本地的实现 agent 去做。',
+    'workspace：允许在已授权的目录内直接读写文件。最常见的用法。',
+  ],
+  authorized: [
+    '勾选哪些工作区允许 ChatGPT 访问。未勾选的目录它看不到。',
+    '只有 DSH 当前已打开的工作区会出现在这里——先在 DSH 里打开项目，再回来勾选。',
+    '标记「目录不存在」的项无法勾选：codexpro 对不存在的授权根会直接拒绝启动，故本插件会跳过它。',
+    '授权一个目录即允许 ChatGPT 在其中读写并执行受控命令（受上面两个开关约束），请按最小必要范围勾选。',
+    '改动需要重启进程才生效。',
+  ],
+}
 
 /**
- * 参数字段组：tunnel / hostname / 端口 / bash / 写入。
+ * 字段帮助按钮与展开区（复刻官方 SettingsValueField 的 help 形态）。
+ * @param {object} props 组件属性
+ * @param {string} props.id 帮助区 id（供 aria-controls 关联）
+ * @param {string[]} props.lines 帮助段落
+ * @returns {object} React 元素
+ */
+function Help({ id, lines }) {
+  const [open, setOpen] = useState(false)
+  return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '4px' } }, [
+    h('button', {
+      key: 'btn',
+      type: 'button',
+      'aria-label': '字段说明',
+      'aria-expanded': open,
+      'aria-controls': id,
+      onClick: () => setOpen(!open),
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: 'none',
+        width: '24px',
+        height: '24px',
+        padding: 0,
+        border: 0,
+        borderRadius: R.sm,
+        background: open ? T.bgLayer4 : 'none',
+        color: open ? T.labelSecondary : T.labelTertiary,
+        cursor: 'pointer',
+      },
+    }, h(IconInfoOutlineRegular, { size: 12 })),
+    open
+      ? h('div', {
+        key: 'body',
+        id,
+        role: 'region',
+        'aria-label': '字段说明',
+        style: { flex: '1 1 100%', paddingTop: '4px' },
+      }, lines.map((line, index) => h('p', {
+        key: index,
+        style: { margin: index === 0 ? 0 : '6px 0 0', fontSize: '12px', color: T.labelSecondary, lineHeight: '1.6' },
+      }, line)))
+      : null,
+  ])
+}
+
+/**
+ * 自绘字段的外框：官方 `.field` 几何 + 标签行（含帮助）+ 控件 + 说明。
+ * @param {object} props 组件属性
+ * @param {string} props.label 标签
+ * @param {string} [props.hint] 控件下方一行说明
+ * @param {string[]} [props.help] 「?」展开的详细说明
+ * @param {boolean} [props.first] 是否该组首个字段（首个不画分隔线）
+ * @param {object} props.children 控件
+ * @returns {object} React 元素
+ */
+function FieldBox({ label, hint, help, first, children }) {
+  const helpId = `codexpro-help-${label}`
+  return h('div', { style: fieldBox(first) }, [
+    h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } }, [
+      h('span', { key: 'l', style: fieldLabel }, label),
+      help ? h(Help, { key: 'help', id: helpId, lines: help }) : null,
+    ]),
+    children,
+    hint ? h('p', { key: 'hint', style: hintText }, hint) : null,
+  ])
+}
+
+/**
+ * 分组小标题。
+ * @param {object} props 组件属性
+ * @param {string} props.title 标题
+ * @param {string} [props.note] 一句话说明
+ * @returns {object} React 元素
+ */
+function Group({ title, note, children }) {
+  return h('section', { style: groupBox }, [
+    h('h3', { key: 't', style: groupTitle }, title),
+    note ? h('p', { key: 'n', style: { ...hintText, margin: '2px 0 0' } }, note) : null,
+    children,
+  ])
+}
+
+/**
+ * 参数字段组：网络 / 权限 / 模式三组。
  * @param {object} props 组件属性
  * @param {object} props.fields 各字段的官方状态（text/overridden/invalid）
  * @param {boolean} props.disabled 是否禁用
@@ -39,27 +170,41 @@ const RESET = '重置'
  * @returns {object} React 元素
  */
 export function OptionsFields({ fields, disabled, onEdit, onReset }) {
-  return h('div', { style: { display: 'flex', flexDirection: 'column' } }, [
-    h(FieldRow, { key: 'tunnel', label: 'Tunnel 方式', hint: '公网入口方式；none 仅本地可用' },
-      h('select', {
+  return h('div', null, [
+    h(Group, { key: 'net', title: '网络接入', note: 'ChatGPT 通过哪个地址连到本机。改完需重启进程才生效。' }, [
+      h(FieldBox, {
+        key: 'tunnel',
+        label: 'Tunnel 方式',
+        first: true,
+        hint: '默认 none：只在本机可用，不暴露到公网',
+        help: HELP.tunnelMode,
+      }, h('select', {
         value: fields.tunnelMode.text,
         disabled,
         onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-        style: { ...fieldStyle, minWidth: '260px', cursor: disabled ? 'default' : 'pointer' },
+        style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '320px' },
       }, TUNNEL_MODES.map((mode) => h('option', { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
-    NEEDS_HOSTNAME.has(fields.tunnelMode.text)
-      ? h(FieldRow, { key: 'hostname', label: '公网 hostname', hint: '该 tunnel 方式必需，codexpro 亦强制要求' },
-        h('input', {
+      NEEDS_HOSTNAME.has(fields.tunnelMode.text)
+        ? h(FieldBox, {
+          key: 'hostname',
+          label: '公网 hostname',
+          hint: '该 tunnel 方式必需，codexpro 亦强制要求',
+          help: HELP.tunnelHostname,
+        }, h('input', {
           type: 'text',
           value: fields.tunnelHostname.text,
           disabled,
-          placeholder: 'demo.ngrok-free.dev',
+          placeholder: 'your-domain.ngrok-free.dev',
           onChange: (event) => onEdit(TUNNEL_HOSTNAME, event.target.value),
-          style: { ...fieldStyle, minWidth: '260px' },
+          style: { ...fieldStyle, maxWidth: '320px' },
         }))
-      : null,
-    h(FieldRow, { key: 'port', label: '本地端口', hint: '1–65535 的整数；改动需重启进程才生效' },
-      h('input', {
+        : null,
+      h(FieldBox, {
+        key: 'port',
+        label: '本地端口',
+        hint: '仅在本机端口冲突时才需修改',
+        help: HELP.port,
+      }, h('input', {
         type: 'text',
         inputMode: 'numeric',
         value: fields.port.text,
@@ -67,23 +212,38 @@ export function OptionsFields({ fields, disabled, onEdit, onReset }) {
         placeholder: '8787',
         'aria-invalid': fields.port.invalid ? true : undefined,
         onChange: (event) => onEdit(PORT, event.target.value),
-        style: { ...fieldStyle, minWidth: '90px', borderColor: fields.port.invalid ? T.error : T.borderL2 },
-      }),
-      fields.port.invalid ? h('span', { key: 'bad', style: captionText }, '端口需为整数') : null),
-    h(FieldRow, { key: 'bash', label: 'bash 模式', hint: 'safe 允许常见检查与测试命令；full 为任意 shell，仅在信任的仓库使用' },
-      h('select', {
+        style: {
+          ...fieldStyle,
+          maxWidth: '140px',
+          borderColor: fields.port.invalid ? T.error : T.borderL4,
+        },
+      }), fields.port.invalid ? h('p', { key: 'bad', style: { ...hintText, color: T.error } }, '端口需为 1–65535 的整数') : null),
+    ]),
+    h(Group, { key: 'perm', title: '权限', note: '决定 ChatGPT 能在你的项目里做到什么程度，是风险控制的主要开关。' }, [
+      h(FieldBox, {
+        key: 'bash',
+        label: 'bash 模式',
+        first: true,
+        hint: 'safe 覆盖大多数场景；full 等同于你自己在终端操作',
+        help: HELP.bashMode,
+      }, h('select', {
         value: fields.bashMode.text,
         disabled,
         onChange: (event) => onEdit(BASH_MODE, event.target.value),
-        style: { ...fieldStyle, minWidth: '120px', cursor: disabled ? 'default' : 'pointer' },
+        style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '140px' },
       }, BASH_MODES.map((mode) => h('option', { key: mode, value: mode }, mode)))),
-    h(FieldRow, { key: 'write', label: '写入模式', hint: 'workspace 允许在授权目录内写入' },
-      h('select', {
+      h(FieldBox, {
+        key: 'write',
+        label: '写入模式',
+        hint: 'workspace 允许在已授权目录内直接读写',
+        help: HELP.writeMode,
+      }, h('select', {
         value: fields.writeMode.text,
         disabled,
         onChange: (event) => onEdit(WRITE_MODE, event.target.value),
-        style: { ...fieldStyle, minWidth: '120px', cursor: disabled ? 'default' : 'pointer' },
+        style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '140px' },
       }, WRITE_MODES.map((mode) => h('option', { key: mode, value: mode }, mode)))),
+    ]),
   ])
 }
 
@@ -114,65 +274,47 @@ export function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
     onEdit(AUTHORIZED, JSON.stringify(mapped))
   }
 
-  if (!Array.isArray(workspaces) || workspaces.length === 0) {
-    return h('div', { style: { padding: '7px 0' } }, [
-      h('span', { key: 'l', style: { ...labelStyle } }, '授权工作区'),
-      h('p', { key: 't', style: { ...noteText, margin: '4px 0 0' } },
-        '当前实例还没有工作区。在 DSH 里打开一个项目后它会出现在这里。'),
-    ])
-  }
+  const selected = Object.keys(authorized).length
+  const list = Array.isArray(workspaces) ? workspaces : []
 
-  return h('div', { style: { display: 'flex', flexDirection: 'column', padding: '7px 0' } }, [
-    h('div', { key: 'head', style: { display: 'flex', alignItems: 'baseline', gap: '8px' } }, [
-      h('span', { key: 'l', style: labelStyle }, '授权工作区'),
-      h('span', { key: 'c', style: captionText }, `已选 ${Object.keys(authorized).length} / ${workspaces.length}`),
+  return h(Group, {
+    title: '授权工作区',
+    note: '未勾选的目录 ChatGPT 看不到。先在 DSH 里打开项目，它才会出现在这里。',
+  }, [
+    h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' } }, [
+      h('span', { key: 'l', style: fieldLabel }, list.length ? `已选 ${selected} / ${list.length}` : '暂无候选'),
+      h(Help, { key: 'help', id: 'codexpro-help-authorized', lines: HELP.authorized }),
     ]),
-    h('p', { key: 'hint', style: { ...noteText, margin: '2px 0 8px' } },
-      '授权后 ChatGPT 可在该目录内读写并执行受控命令。目录不存在的项会被跳过（codexpro 拒绝不存在的授权根）。'),
-    h('div', {
-      key: 'list',
-      style: { border: `${HAIRLINE} solid ${T.borderL2}`, borderRadius: R.md, overflow: 'hidden' },
-    }, workspaces.map((item, index) => h('div', {
-      key: item.path,
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        padding: '7px 10px',
-        fontSize: '13px',
-        borderTop: index === 0 ? 'none' : `${HAIRLINE} solid ${T.borderL2}`,
-        background: T.bgLayer3,
-        opacity: item.exists ? 1 : 0.55,
-      },
-    }, [
-      h(Checkbox, {
-        key: 'box',
-        checked: authorized[item.path] === true,
-        disabled: disabled || !item.exists,
-        onChange: (next) => toggle(item.path, next),
-      }),
-      h('span', { key: 'title', style: { color: T.labelPrimary, flex: 'none' } }, item.title),
-      h('span', { key: 'path', style: { ...captionText, flex: '1 1 auto', wordBreak: 'break-all' } }, item.path),
-      item.exists ? null : h(Tag, { key: 'miss', tone: 'neutral' }, '目录不存在'),
-    ]))),
+    list.length === 0
+      ? h('p', { key: 'empty', style: { ...hintText, marginTop: '6px' } },
+        '当前实例还没有工作区。在 DSH 里打开一个项目后，它就会出现在这里。')
+      : h('div', {
+        key: 'list',
+        style: { marginTop: '6px', border: `${HAIRLINE} solid ${T.borderL4}`, borderRadius: R.md, overflow: 'hidden' },
+      }, list.map((item, index) => h('div', {
+        key: item.path,
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '9px 12px',
+          fontSize: '13px',
+          borderTop: index === 0 ? 'none' : `${HAIRLINE} solid ${T.borderL2}`,
+          background: T.bgLayer3,
+          opacity: item.exists ? 1 : 0.55,
+        },
+      }, [
+        h(Checkbox, {
+          key: 'box',
+          checked: authorized[item.path] === true,
+          disabled: disabled || !item.exists,
+          onChange: (next) => toggle(item.path, next),
+        }),
+        h('span', { key: 'title', style: { ...fieldLabel, fontWeight: 400, flex: 'none' } }, item.title),
+        h('span', { key: 'path', style: { ...captionText, flex: '1 1 auto', wordBreak: 'break-all' } }, item.path),
+        item.exists ? null : h(Tag, { key: 'miss', tone: 'neutral' }, '目录不存在'),
+      ]))),
   ])
 }
 
-/** 字段标签样式（与行内其他字段对齐）。 */
-const labelStyle = { fontSize: '13px', color: T.labelPrimary }
-
-/**
- * 一行字段：左标签、中控件、下侧说明。
- * @param {object} props 组件属性
- * @param {string} props.label 标签
- * @param {string} [props.hint] 说明
- * @param {object} props.children 控件
- * @returns {object} React 元素
- */
-function FieldRow({ label, hint, children }) {
-  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', padding: '7px 0' } }, [
-    h('span', { key: 'l', style: labelStyle }, label),
-    h('div', { key: 'c', style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, children),
-    hint ? h('p', { key: 'h', style: { ...noteText, margin: 0 } }, hint) : null,
-  ])
-}
+export { FieldBox, Group }

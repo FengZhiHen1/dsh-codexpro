@@ -101,6 +101,8 @@ var T = {
   bgBase: "var(--dsw-alias-bg-base)",
   bgLayer2: "var(--dsw-alias-bg-layer-2)",
   bgLayer3: "var(--dsw-alias-bg-layer-3)",
+  /** 官方面层：hover 与展开态用（fields.module.css 的 helpButton:hover）。 */
+  bgLayer4: "var(--dsw-alias-bg-layer-4)",
   bgModulePlatform: "var(--dsw-alias-bg-module-platform)",
   borderL1: "var(--dsw-alias-border-l1)",
   borderL2: "var(--dsw-alias-border-l2)",
@@ -170,13 +172,26 @@ var cardStyle = {
 var dividerStyle = { height: HAIRLINE, background: T.borderL2, flex: "none" };
 var noteText = { fontSize: "13px", color: T.labelTertiary, lineHeight: "20px" };
 var captionText = { fontSize: "12px", color: T.labelCaption, lineHeight: "18px" };
+var hintText = { margin: 0, fontSize: "12px", color: T.labelTertiary, lineHeight: "1.5" };
+var fieldBox = (first = false) => ({
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px",
+  padding: "12px 0",
+  borderTop: first ? "none" : `${HAIRLINE} solid ${T.borderL2}`
+});
+var fieldLabel = { fontSize: "13px", fontWeight: 500, color: T.labelPrimary, lineHeight: "1.5" };
+var groupTitle = { margin: 0, fontSize: "14px", fontWeight: 500, color: T.labelPrimary, lineHeight: "22px" };
+var groupBox = { display: "flex", flexDirection: "column", gap: "2px", paddingTop: "16px" };
 var fieldStyle = {
-  border: `${HAIRLINE} solid ${T.borderL2}`,
-  borderRadius: R.sm,
+  border: `${HAIRLINE} solid ${T.borderL4}`,
+  borderRadius: R.md,
   background: T.bgLayer3,
-  padding: "4px 8px",
+  padding: "0 12px",
+  height: "34px",
   font: "inherit",
   fontSize: "13px",
+  lineHeight: "1.5",
   color: T.labelPrimary,
   minWidth: 0
 };
@@ -333,41 +348,145 @@ function createController(scope) {
 var import_react2 = require("react");
 var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 var TUNNEL_LABELS = {
-  none: "none\uFF08\u4EC5\u672C\u5730\uFF0C\u4E0D\u4EA7\u751F\u516C\u7F51\u5165\u53E3\uFF09",
-  ngrok: "ngrok\uFF08\u7A33\u5B9A dev domain\uFF09",
-  cloudflare: "cloudflare\uFF08quick tunnel\uFF0CURL \u6BCF\u6B21\u91CD\u542F\u90FD\u53D8\uFF09",
-  "cloudflare-named": "cloudflare-named\uFF08\u5177\u540D\u96A7\u9053\uFF0CURL \u7A33\u5B9A\uFF09",
-  tailscale: "tailscale\uFF08Funnel\uFF09"
+  none: "none \u2014 \u4EC5\u672C\u5730\uFF0C\u65E0\u516C\u7F51\u5165\u53E3",
+  ngrok: "ngrok \u2014 \u7A33\u5B9A dev domain",
+  cloudflare: "cloudflare \u2014 \u5FEB\u901F\u96A7\u9053\uFF08URL \u6BCF\u6B21\u91CD\u542F\u90FD\u53D8\uFF09",
+  "cloudflare-named": "cloudflare-named \u2014 \u5177\u540D\u96A7\u9053\uFF08URL \u7A33\u5B9A\uFF09",
+  tailscale: "tailscale \u2014 Funnel"
 };
 var NEEDS_HOSTNAME = new Set(HOSTNAME_REQUIRED_TUNNELS);
+var HELP = {
+  tunnelMode: [
+    "\u51B3\u5B9A ChatGPT \u7528\u4EC0\u4E48\u5730\u5740\u8FDE\u5230\u672C\u673A codexpro\u3002\u9ED8\u8BA4 none\uFF0C\u53EA\u5728\u4F60\u8FD9\u53F0\u673A\u5668\u4E0A\u53EF\u7528\u3002",
+    "none\uFF1A\u4E0D\u4EA7\u751F\u516C\u7F51\u5165\u53E3\uFF0C\u53EA\u5728\u672C\u673A\u6D4F\u89C8\u5668/\u5BA2\u6237\u7AEF\u53EF\u7528\u3002\u6700\u5B89\u5168\u7684\u9ED8\u8BA4\u503C\u3002",
+    "cloudflare\uFF1A\u514D\u914D\u7F6E\u5FEB\u901F\u96A7\u9053\uFF0C\u4F46\u6BCF\u6B21\u91CD\u542F\u8FDB\u7A0B\u90FD\u4F1A\u6362\u4E00\u4E2A\u65B0 URL\uFF0C\u9700\u8981\u91CD\u65B0\u8D34\u7ED9 ChatGPT\u3002\u9002\u5408\u4E34\u65F6\u8BD5\u7528\u3002",
+    "cloudflare-named\uFF1A\u9700\u5148\u5728 Cloudflare \u5EFA\u597D\u5177\u540D\u96A7\u9053\uFF0CURL \u56FA\u5B9A\u4E0D\u53D8\u3002\u9002\u5408\u957F\u671F\u4F7F\u7528\u3002",
+    "ngrok\uFF1A\u7528 ngrok \u7684\u56FA\u5B9A dev domain\uFF0CURL \u7A33\u5B9A\uFF1B\u9700\u672C\u673A\u5DF2\u5B89\u88C5\u5E76\u767B\u5F55 ngrok\u3002",
+    "tailscale\uFF1A\u8D70 Tailscale Funnel\uFF0C\u9002\u5408\u5DF2\u6709 Tailscale \u7F51\u7EDC\u7684\u573A\u666F\u3002",
+    "\u6CE8\u610F\uFF1A\u9664 none \u5916\u90FD\u4F1A\u628A\u8FD9\u4E2A\u672C\u5730\u670D\u52A1\u66B4\u9732\u5230\u516C\u7F51\uFF0C\u8BF7\u786E\u4FDD\u5DF2\u8BBE\u7F6E\u53EF\u4FE1\u7684\u8BBF\u95EE token\u3002"
+  ],
+  tunnelHostname: [
+    "\u516C\u7F51\u4E0A\u9762\u5411 ChatGPT \u7684\u90A3\u4E2A\u57DF\u540D\uFF0C\u5FC5\u987B\u4E0E\u6240\u9009 tunnel \u65B9\u5F0F\u5BF9\u5E94\uFF1A",
+    "ngrok\uFF1A\u5F62\u5982 your-domain.ngrok-free.dev\uFF08ngrok \u540E\u53F0\u91CC\u7684 dev domain\uFF09\u3002",
+    "cloudflare-named\uFF1A\u4F60\u5728 Cloudflare \u4E3A\u8BE5\u96A7\u9053\u7ED1\u5B9A\u7684\u81EA\u5B9A\u4E49\u57DF\u540D\u3002",
+    "tailscale\uFF1A\u5F62\u5982 your-device.your-tailnet.ts.net\uFF08Tailscale \u5206\u914D\u7684\u8282\u70B9\u540D\uFF09\u3002",
+    "\u586B\u9519\u4E0D\u4F1A\u7ACB\u523B\u62A5\u9519\uFF0C\u4F46 ChatGPT \u4F1A\u8FDE\u4E0D\u4E0A\u2014\u2014\u5B83\u89E3\u6790\u7684\u5C31\u662F\u8FD9\u4E2A\u57DF\u540D\u3002"
+  ],
+  port: [
+    "codexpro \u5728\u672C\u673A\u76D1\u542C\u7684\u7AEF\u53E3\uFF0C\u9ED8\u8BA4 8787\u3002",
+    "\u53EA\u6709\u672C\u673A\u7AEF\u53E3\u51B2\u7A81\uFF08\u4F8B\u5982\u522B\u7684\u7A0B\u5E8F\u5DF2\u5360\u7528 8787\uFF09\u65F6\u624D\u9700\u8981\u6539\u3002",
+    "\u53D6\u503C\u5FC5\u987B\u662F 1\u201365535 \u7684\u6574\u6570\u3002\u6539\u4E3A\u975E\u9ED8\u8BA4\u503C\u540E\uFF0C\u8BF7\u786E\u8BA4\u6CA1\u6709\u5176\u4ED6\u670D\u52A1\u5360\u7528\u8BE5\u7AEF\u53E3\u3002"
+  ],
+  bashMode: [
+    "\u51B3\u5B9A ChatGPT \u80FD\u5728\u4F60\u7684\u9879\u76EE\u91CC\u6267\u884C\u4EC0\u4E48\u547D\u4EE4\u3002",
+    "off\uFF1A\u5B8C\u5168\u7981\u6B62\u6267\u884C\u547D\u4EE4\uFF0C\u53EA\u505A\u6587\u4EF6\u8BFB\u5199\u3002\u6700\u4FDD\u5B88\u3002",
+    "safe\uFF1A\u5141\u8BB8\u5E38\u89C1\u7684\u68C0\u67E5\u4E0E\u6D4B\u8BD5\u7C7B\u547D\u4EE4\uFF08\u5982\u67E5\u770B\u6587\u4EF6\u3001\u8DD1\u6D4B\u8BD5\uFF09\uFF0C\u8FD0\u884C\u65F6\u6309\u767D\u540D\u5355\u7B5B\u9009\u3002",
+    "full\uFF1A\u5141\u8BB8\u4EFB\u610F shell \u547D\u4EE4\uFF0C\u6743\u9650\u7B49\u540C\u4E8E\u4F60\u81EA\u5DF1\u5728\u7EC8\u7AEF\u91CC\u64CD\u4F5C\u3002\u4EC5\u5728\u5B8C\u5168\u4FE1\u4EFB\u7684\u4ED3\u5E93\u91CC\u4F7F\u7528\u3002",
+    "\u8FD9\u4E2A\u5F00\u5173\u76F4\u63A5\u51B3\u5B9A\u98CE\u9669\u5927\u5C0F\uFF1A\u4E0D\u786E\u5B9A\u65F6\u4FDD\u6301 safe\u3002"
+  ],
+  writeMode: [
+    "\u51B3\u5B9A ChatGPT \u80FD\u5426\u6539\u52A8\u4F60\u7684\u6587\u4EF6\u3002",
+    "off\uFF1A\u53EA\u8BFB\uFF0C\u7981\u6B62\u4EFB\u4F55\u5199\u5165\u3002",
+    "handoff\uFF1A\u4E0D\u6539\u52A8\u6587\u4EF6\uFF0C\u800C\u662F\u628A\u5B9E\u73B0\u8BA1\u5212\u5199\u6210 .ai-bridge \u4EA4\u63A5\u6587\u4EF6\uFF0C\u4EA4\u7ED9\u672C\u5730\u7684\u5B9E\u73B0 agent \u53BB\u505A\u3002",
+    "workspace\uFF1A\u5141\u8BB8\u5728\u5DF2\u6388\u6743\u7684\u76EE\u5F55\u5185\u76F4\u63A5\u8BFB\u5199\u6587\u4EF6\u3002\u6700\u5E38\u89C1\u7684\u7528\u6CD5\u3002"
+  ],
+  authorized: [
+    "\u52FE\u9009\u54EA\u4E9B\u5DE5\u4F5C\u533A\u5141\u8BB8 ChatGPT \u8BBF\u95EE\u3002\u672A\u52FE\u9009\u7684\u76EE\u5F55\u5B83\u770B\u4E0D\u5230\u3002",
+    "\u53EA\u6709 DSH \u5F53\u524D\u5DF2\u6253\u5F00\u7684\u5DE5\u4F5C\u533A\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u2014\u2014\u5148\u5728 DSH \u91CC\u6253\u5F00\u9879\u76EE\uFF0C\u518D\u56DE\u6765\u52FE\u9009\u3002",
+    "\u6807\u8BB0\u300C\u76EE\u5F55\u4E0D\u5B58\u5728\u300D\u7684\u9879\u65E0\u6CD5\u52FE\u9009\uFF1Acodexpro \u5BF9\u4E0D\u5B58\u5728\u7684\u6388\u6743\u6839\u4F1A\u76F4\u63A5\u62D2\u7EDD\u542F\u52A8\uFF0C\u6545\u672C\u63D2\u4EF6\u4F1A\u8DF3\u8FC7\u5B83\u3002",
+    "\u6388\u6743\u4E00\u4E2A\u76EE\u5F55\u5373\u5141\u8BB8 ChatGPT \u5728\u5176\u4E2D\u8BFB\u5199\u5E76\u6267\u884C\u53D7\u63A7\u547D\u4EE4\uFF08\u53D7\u4E0A\u9762\u4E24\u4E2A\u5F00\u5173\u7EA6\u675F\uFF09\uFF0C\u8BF7\u6309\u6700\u5C0F\u5FC5\u8981\u8303\u56F4\u52FE\u9009\u3002",
+    "\u6539\u52A8\u9700\u8981\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002"
+  ]
+};
+function Help({ id, lines }) {
+  const [open, setOpen] = (0, import_react2.useState)(false);
+  return (0, import_react2.createElement)("span", { style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, [
+    (0, import_react2.createElement)("button", {
+      key: "btn",
+      type: "button",
+      "aria-label": "\u5B57\u6BB5\u8BF4\u660E",
+      "aria-expanded": open,
+      "aria-controls": id,
+      onClick: () => setOpen(!open),
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flex: "none",
+        width: "24px",
+        height: "24px",
+        padding: 0,
+        border: 0,
+        borderRadius: R.sm,
+        background: open ? T.bgLayer4 : "none",
+        color: open ? T.labelSecondary : T.labelTertiary,
+        cursor: "pointer"
+      }
+    }, (0, import_react2.createElement)(import_dsh_client_ui_primitives2.IconInfoOutlineRegular, { size: 12 })),
+    open ? (0, import_react2.createElement)("div", {
+      key: "body",
+      id,
+      role: "region",
+      "aria-label": "\u5B57\u6BB5\u8BF4\u660E",
+      style: { flex: "1 1 100%", paddingTop: "4px" }
+    }, lines.map((line, index) => (0, import_react2.createElement)("p", {
+      key: index,
+      style: { margin: index === 0 ? 0 : "6px 0 0", fontSize: "12px", color: T.labelSecondary, lineHeight: "1.6" }
+    }, line))) : null
+  ]);
+}
+function FieldBox({ label, hint, help, first, children }) {
+  const helpId = `codexpro-help-${label}`;
+  return (0, import_react2.createElement)("div", { style: fieldBox(first) }, [
+    (0, import_react2.createElement)("div", { key: "head", style: { display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" } }, [
+      (0, import_react2.createElement)("span", { key: "l", style: fieldLabel }, label),
+      help ? (0, import_react2.createElement)(Help, { key: "help", id: helpId, lines: help }) : null
+    ]),
+    children,
+    hint ? (0, import_react2.createElement)("p", { key: "hint", style: hintText }, hint) : null
+  ]);
+}
+function Group({ title, note, children }) {
+  return (0, import_react2.createElement)("section", { style: groupBox }, [
+    (0, import_react2.createElement)("h3", { key: "t", style: groupTitle }, title),
+    note ? (0, import_react2.createElement)("p", { key: "n", style: { ...hintText, margin: "2px 0 0" } }, note) : null,
+    children
+  ]);
+}
 function OptionsFields({ fields, disabled, onEdit, onReset }) {
-  return (0, import_react2.createElement)("div", { style: { display: "flex", flexDirection: "column" } }, [
-    (0, import_react2.createElement)(
-      FieldRow,
-      { key: "tunnel", label: "Tunnel \u65B9\u5F0F", hint: "\u516C\u7F51\u5165\u53E3\u65B9\u5F0F\uFF1Bnone \u4EC5\u672C\u5730\u53EF\u7528" },
-      (0, import_react2.createElement)("select", {
+  return (0, import_react2.createElement)("div", null, [
+    (0, import_react2.createElement)(Group, { key: "net", title: "\u7F51\u7EDC\u63A5\u5165", note: "ChatGPT \u901A\u8FC7\u54EA\u4E2A\u5730\u5740\u8FDE\u5230\u672C\u673A\u3002\u6539\u5B8C\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002" }, [
+      (0, import_react2.createElement)(FieldBox, {
+        key: "tunnel",
+        label: "Tunnel \u65B9\u5F0F",
+        first: true,
+        hint: "\u9ED8\u8BA4 none\uFF1A\u53EA\u5728\u672C\u673A\u53EF\u7528\uFF0C\u4E0D\u66B4\u9732\u5230\u516C\u7F51",
+        help: HELP.tunnelMode
+      }, (0, import_react2.createElement)("select", {
         value: fields.tunnelMode.text,
         disabled,
         onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-        style: { ...fieldStyle, minWidth: "260px", cursor: disabled ? "default" : "pointer" }
-      }, TUNNEL_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))
-    ),
-    NEEDS_HOSTNAME.has(fields.tunnelMode.text) ? (0, import_react2.createElement)(
-      FieldRow,
-      { key: "hostname", label: "\u516C\u7F51 hostname", hint: "\u8BE5 tunnel \u65B9\u5F0F\u5FC5\u9700\uFF0Ccodexpro \u4EA6\u5F3A\u5236\u8981\u6C42" },
-      (0, import_react2.createElement)("input", {
+        style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "320px" }
+      }, TUNNEL_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
+      NEEDS_HOSTNAME.has(fields.tunnelMode.text) ? (0, import_react2.createElement)(FieldBox, {
+        key: "hostname",
+        label: "\u516C\u7F51 hostname",
+        hint: "\u8BE5 tunnel \u65B9\u5F0F\u5FC5\u9700\uFF0Ccodexpro \u4EA6\u5F3A\u5236\u8981\u6C42",
+        help: HELP.tunnelHostname
+      }, (0, import_react2.createElement)("input", {
         type: "text",
         value: fields.tunnelHostname.text,
         disabled,
-        placeholder: "demo.ngrok-free.dev",
+        placeholder: "your-domain.ngrok-free.dev",
         onChange: (event) => onEdit(TUNNEL_HOSTNAME, event.target.value),
-        style: { ...fieldStyle, minWidth: "260px" }
-      })
-    ) : null,
-    (0, import_react2.createElement)(
-      FieldRow,
-      { key: "port", label: "\u672C\u5730\u7AEF\u53E3", hint: "1\u201365535 \u7684\u6574\u6570\uFF1B\u6539\u52A8\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548" },
-      (0, import_react2.createElement)("input", {
+        style: { ...fieldStyle, maxWidth: "320px" }
+      })) : null,
+      (0, import_react2.createElement)(FieldBox, {
+        key: "port",
+        label: "\u672C\u5730\u7AEF\u53E3",
+        hint: "\u4EC5\u5728\u672C\u673A\u7AEF\u53E3\u51B2\u7A81\u65F6\u624D\u9700\u4FEE\u6539",
+        help: HELP.port
+      }, (0, import_react2.createElement)("input", {
         type: "text",
         inputMode: "numeric",
         value: fields.port.text,
@@ -375,30 +494,38 @@ function OptionsFields({ fields, disabled, onEdit, onReset }) {
         placeholder: "8787",
         "aria-invalid": fields.port.invalid ? true : void 0,
         onChange: (event) => onEdit(PORT, event.target.value),
-        style: { ...fieldStyle, minWidth: "90px", borderColor: fields.port.invalid ? T.error : T.borderL2 }
-      }),
-      fields.port.invalid ? (0, import_react2.createElement)("span", { key: "bad", style: captionText }, "\u7AEF\u53E3\u9700\u4E3A\u6574\u6570") : null
-    ),
-    (0, import_react2.createElement)(
-      FieldRow,
-      { key: "bash", label: "bash \u6A21\u5F0F", hint: "safe \u5141\u8BB8\u5E38\u89C1\u68C0\u67E5\u4E0E\u6D4B\u8BD5\u547D\u4EE4\uFF1Bfull \u4E3A\u4EFB\u610F shell\uFF0C\u4EC5\u5728\u4FE1\u4EFB\u7684\u4ED3\u5E93\u4F7F\u7528" },
-      (0, import_react2.createElement)("select", {
+        style: {
+          ...fieldStyle,
+          maxWidth: "140px",
+          borderColor: fields.port.invalid ? T.error : T.borderL4
+        }
+      }), fields.port.invalid ? (0, import_react2.createElement)("p", { key: "bad", style: { ...hintText, color: T.error } }, "\u7AEF\u53E3\u9700\u4E3A 1\u201365535 \u7684\u6574\u6570") : null)
+    ]),
+    (0, import_react2.createElement)(Group, { key: "perm", title: "\u6743\u9650", note: "\u51B3\u5B9A ChatGPT \u80FD\u5728\u4F60\u7684\u9879\u76EE\u91CC\u505A\u5230\u4EC0\u4E48\u7A0B\u5EA6\uFF0C\u662F\u98CE\u9669\u63A7\u5236\u7684\u4E3B\u8981\u5F00\u5173\u3002" }, [
+      (0, import_react2.createElement)(FieldBox, {
+        key: "bash",
+        label: "bash \u6A21\u5F0F",
+        first: true,
+        hint: "safe \u8986\u76D6\u5927\u591A\u6570\u573A\u666F\uFF1Bfull \u7B49\u540C\u4E8E\u4F60\u81EA\u5DF1\u5728\u7EC8\u7AEF\u64CD\u4F5C",
+        help: HELP.bashMode
+      }, (0, import_react2.createElement)("select", {
         value: fields.bashMode.text,
         disabled,
         onChange: (event) => onEdit(BASH_MODE, event.target.value),
-        style: { ...fieldStyle, minWidth: "120px", cursor: disabled ? "default" : "pointer" }
-      }, BASH_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode)))
-    ),
-    (0, import_react2.createElement)(
-      FieldRow,
-      { key: "write", label: "\u5199\u5165\u6A21\u5F0F", hint: "workspace \u5141\u8BB8\u5728\u6388\u6743\u76EE\u5F55\u5185\u5199\u5165" },
-      (0, import_react2.createElement)("select", {
+        style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "140px" }
+      }, BASH_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode)))),
+      (0, import_react2.createElement)(FieldBox, {
+        key: "write",
+        label: "\u5199\u5165\u6A21\u5F0F",
+        hint: "workspace \u5141\u8BB8\u5728\u5DF2\u6388\u6743\u76EE\u5F55\u5185\u76F4\u63A5\u8BFB\u5199",
+        help: HELP.writeMode
+      }, (0, import_react2.createElement)("select", {
         value: fields.writeMode.text,
         disabled,
         onChange: (event) => onEdit(WRITE_MODE, event.target.value),
-        style: { ...fieldStyle, minWidth: "120px", cursor: disabled ? "default" : "pointer" }
-      }, WRITE_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode)))
-    )
+        style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "140px" }
+      }, WRITE_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, mode))))
+    ])
   ]);
 }
 function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
@@ -408,36 +535,30 @@ function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
     else delete mapped[path];
     onEdit(AUTHORIZED, JSON.stringify(mapped));
   };
-  if (!Array.isArray(workspaces) || workspaces.length === 0) {
-    return (0, import_react2.createElement)("div", { style: { padding: "7px 0" } }, [
-      (0, import_react2.createElement)("span", { key: "l", style: { ...labelStyle } }, "\u6388\u6743\u5DE5\u4F5C\u533A"),
-      (0, import_react2.createElement)(
-        "p",
-        { key: "t", style: { ...noteText, margin: "4px 0 0" } },
-        "\u5F53\u524D\u5B9E\u4F8B\u8FD8\u6CA1\u6709\u5DE5\u4F5C\u533A\u3002\u5728 DSH \u91CC\u6253\u5F00\u4E00\u4E2A\u9879\u76EE\u540E\u5B83\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002"
-      )
-    ]);
-  }
-  return (0, import_react2.createElement)("div", { style: { display: "flex", flexDirection: "column", padding: "7px 0" } }, [
-    (0, import_react2.createElement)("div", { key: "head", style: { display: "flex", alignItems: "baseline", gap: "8px" } }, [
-      (0, import_react2.createElement)("span", { key: "l", style: labelStyle }, "\u6388\u6743\u5DE5\u4F5C\u533A"),
-      (0, import_react2.createElement)("span", { key: "c", style: captionText }, `\u5DF2\u9009 ${Object.keys(authorized).length} / ${workspaces.length}`)
+  const selected = Object.keys(authorized).length;
+  const list = Array.isArray(workspaces) ? workspaces : [];
+  return (0, import_react2.createElement)(Group, {
+    title: "\u6388\u6743\u5DE5\u4F5C\u533A",
+    note: "\u672A\u52FE\u9009\u7684\u76EE\u5F55 ChatGPT \u770B\u4E0D\u5230\u3002\u5148\u5728 DSH \u91CC\u6253\u5F00\u9879\u76EE\uFF0C\u5B83\u624D\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002"
+  }, [
+    (0, import_react2.createElement)("div", { key: "head", style: { display: "flex", alignItems: "center", gap: "4px", marginTop: "6px" } }, [
+      (0, import_react2.createElement)("span", { key: "l", style: fieldLabel }, list.length ? `\u5DF2\u9009 ${selected} / ${list.length}` : "\u6682\u65E0\u5019\u9009"),
+      (0, import_react2.createElement)(Help, { key: "help", id: "codexpro-help-authorized", lines: HELP.authorized })
     ]),
-    (0, import_react2.createElement)(
+    list.length === 0 ? (0, import_react2.createElement)(
       "p",
-      { key: "hint", style: { ...noteText, margin: "2px 0 8px" } },
-      "\u6388\u6743\u540E ChatGPT \u53EF\u5728\u8BE5\u76EE\u5F55\u5185\u8BFB\u5199\u5E76\u6267\u884C\u53D7\u63A7\u547D\u4EE4\u3002\u76EE\u5F55\u4E0D\u5B58\u5728\u7684\u9879\u4F1A\u88AB\u8DF3\u8FC7\uFF08codexpro \u62D2\u7EDD\u4E0D\u5B58\u5728\u7684\u6388\u6743\u6839\uFF09\u3002"
-    ),
-    (0, import_react2.createElement)("div", {
+      { key: "empty", style: { ...hintText, marginTop: "6px" } },
+      "\u5F53\u524D\u5B9E\u4F8B\u8FD8\u6CA1\u6709\u5DE5\u4F5C\u533A\u3002\u5728 DSH \u91CC\u6253\u5F00\u4E00\u4E2A\u9879\u76EE\u540E\uFF0C\u5B83\u5C31\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002"
+    ) : (0, import_react2.createElement)("div", {
       key: "list",
-      style: { border: `${HAIRLINE} solid ${T.borderL2}`, borderRadius: R.md, overflow: "hidden" }
-    }, workspaces.map((item, index) => (0, import_react2.createElement)("div", {
+      style: { marginTop: "6px", border: `${HAIRLINE} solid ${T.borderL4}`, borderRadius: R.md, overflow: "hidden" }
+    }, list.map((item, index) => (0, import_react2.createElement)("div", {
       key: item.path,
       style: {
         display: "flex",
         alignItems: "center",
         gap: "10px",
-        padding: "7px 10px",
+        padding: "9px 12px",
         fontSize: "13px",
         borderTop: index === 0 ? "none" : `${HAIRLINE} solid ${T.borderL2}`,
         background: T.bgLayer3,
@@ -450,18 +571,10 @@ function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
         disabled: disabled || !item.exists,
         onChange: (next) => toggle(item.path, next)
       }),
-      (0, import_react2.createElement)("span", { key: "title", style: { color: T.labelPrimary, flex: "none" } }, item.title),
+      (0, import_react2.createElement)("span", { key: "title", style: { ...fieldLabel, fontWeight: 400, flex: "none" } }, item.title),
       (0, import_react2.createElement)("span", { key: "path", style: { ...captionText, flex: "1 1 auto", wordBreak: "break-all" } }, item.path),
       item.exists ? null : (0, import_react2.createElement)(import_dsh_client_ui_primitives2.Tag, { key: "miss", tone: "neutral" }, "\u76EE\u5F55\u4E0D\u5B58\u5728")
     ])))
-  ]);
-}
-var labelStyle = { fontSize: "13px", color: T.labelPrimary };
-function FieldRow({ label, hint, children }) {
-  return (0, import_react2.createElement)("div", { style: { display: "flex", flexDirection: "column", gap: "4px", padding: "7px 0" } }, [
-    (0, import_react2.createElement)("span", { key: "l", style: labelStyle }, label),
-    (0, import_react2.createElement)("div", { key: "c", style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } }, children),
-    hint ? (0, import_react2.createElement)("p", { key: "h", style: { ...noteText, margin: 0 } }, hint) : null
   ]);
 }
 

@@ -57,8 +57,10 @@ const Checkbox = passthrough('Checkbox')
 const Tag = passthrough('Tag')
 const Button = passthrough('Button')
 const Pill = passthrough('Pill')
-export { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill }
-export default { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill }
+// 图标原语：官方以函数组件形态导出，自绘字段的帮助按钮要用。
+const IconInfoOutlineRegular = passthrough('IconInfoOutlineRegular')
+export { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill, IconInfoOutlineRegular }
+export default { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill, IconInfoOutlineRegular }
 `,
         loader: 'js',
       }))
@@ -290,8 +292,9 @@ test('进程区块独立于配置表单（启停不走 configForms）', async ()
     const control = globalThis.__REACT_STUB__
     const calls = []
     const tree = await renderCard(card, control, { calls })
-    // 进程区块是一个 <section>，含启停按钮与 Server URL。
-    assert.equal(findAll(tree, (el) => el.type === 'section').length, 1)
+    // 进程区块是唯一含启停按钮的区块；配置字段按组包在 <section> 里，故不能按 section 计数。
+    const buttons = findAll(tree, (el) => el.type === 'button').map(textOf)
+    assert.ok(buttons.includes('启动'), '进程区块应含启动按钮')
     assert.ok(calls.includes('status'), '进程区块应读 status 端点')
     assert.ok(calls.includes('catalog'), '配置页应读 catalog 端点取候选工作区')
     // 配置读的不是本插件端点：那两个端点已下线。
@@ -405,6 +408,62 @@ test('无工作区时给出可行动提示而非空列表', async () => {
   }
 })
 
+test('字段按组分隔：每组有小标题，组内字段有相邻分隔线', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const tree = await renderCard(card, control)
+
+    // 分组标题：h3（官方设置节的 groupTitle 形态）
+    const heads = findAll(tree, (el) => el.type === 'h3').map(textOf)
+    assert.ok(heads.includes('网络接入'), `应有「网络接入」分组，实际 ${JSON.stringify(heads)}`)
+    assert.ok(heads.includes('权限'), '应有「权限」分组')
+    assert.ok(heads.includes('授权工作区'), '应有「授权工作区」分组')
+
+    // 相邻分隔线：每个分组内首个字段无顶线，其余有 0.5px border-l2 顶线。
+    // 官方用 CSS 相邻选择器，内联样式表达不了，故这是显式控制的——漏掉它整片字段会连成一团。
+    const dividers = findAll(tree, (el) => typeof el.props?.style?.borderTop === 'string'
+      && el.props.style.borderTop.includes('0.5px'))
+    assert.ok(dividers.length >= 2, `组内非首字段应有分隔线，实际命中 ${dividers.length}`)
+    assert.ok(dividers.every((el) => el.props.style.borderTop.includes('--dsw-alias-border-l2')),
+      '分隔线应走官方 border-l2 且为 0.5px')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('每个字段都有可展开的详细引导（点「?」）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const tree = await renderCard(card, control)
+
+    const helpButtons = findAll(tree, (el) => el.props?.['aria-label'] === '字段说明')
+    // tunnel / hostname(可选) / port / bash / write / authorized —— 至少 5 个常驻字段。
+    assert.ok(helpButtons.length >= 5, `每个字段都应有帮助按钮，实际 ${helpButtons.length}`)
+    assert.ok(helpButtons.every((el) => el.props['aria-expanded'] === false), '默认应折叠')
+    assert.ok(helpButtons.every((el) => typeof el.props['aria-controls'] === 'string'), '应与说明区经 aria-controls 关联')
+
+    // 折叠时不渲染说明正文（点开才占空间）。
+    assert.equal(findAll(tree, (el) => el.props?.['role'] === 'region').length, 0, '默认不应渲染说明正文')
+
+    // 点开第一个帮助按钮，说明应展开。
+    const before = control.effects.length
+    helpButtons[0].props.onClick()
+    const expanded = await renderCard(card, control)
+    const regions = findAll(expanded, (el) => el.props?.['role'] === 'region')
+    assert.ok(regions.length >= 1, '点开后应渲染说明区')
+    // 引导文案要够详细：tunnel 的说明逐项解释了各取值，不该只有一句话。
+    const body = regions.map((el) => findAll(el, (node) => textOf(node) !== '').map(textOf).join(' ')).join(' ')
+    assert.ok(body.length > 60, `说明应足够详细，实际 ${body.length} 字`)
+    assert.ok(before >= 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('表单不可写时禁用配置控件，但进程区块仍可读', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
@@ -416,8 +475,9 @@ test('表单不可写时禁用配置控件，但进程区块仍可读', async ()
     })
     const boxes = findAll(tree, (el) => el.type === 'Checkbox')
     assert.equal(boxes[0].props.disabled, true, '只读时配置控件应禁用')
-    // 进程状态不依赖设置面：只读时仍应渲染并读到状态。
-    assert.equal(findAll(tree, (el) => el.type === 'section').length, 1, '进程区块仍应渲染')
+    // 进程状态不依赖设置面：只读时仍应渲染并读到状态（按启停按钮判定，不按 section 计数）。
+    const buttons = findAll(tree, (el) => el.type === 'button').map(textOf)
+    assert.ok(buttons.includes('启动'), '进程区块仍应渲染')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
