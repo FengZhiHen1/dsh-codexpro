@@ -99,11 +99,16 @@ function readBinEntry(packageJson) {
 /**
  * 构造 codexpro 启动参数。不含 `--headless`（会绕开 stdin 控制通道）与 `--token`
  * （token 经 profile 文件传递，避免出现在可被同机进程读取的命令行里）。
+ *
+ * 隧道名按「有则传」处理，与 hostname 同形：codexpro 只在 `cloudflare-named` 分支读它
+ * （scripts/codexpro.mjs:4405 起），传了不用是无害的；反之若漏传而该分支需要，
+ * 它会直接抛错拒绝启动（同文件 :4421）。
  * @param {object} input
  * @param {string} input.anchorDir 锚点目录
  * @param {string} input.port 端口
  * @param {string} input.tunnel tunnel 取值
  * @param {string} [input.hostname] 具名 tunnel 的 hostname
+ * @param {string} [input.tunnelName] cloudflare 具名隧道的隧道名
  * @param {string} input.bashMode bash 模式
  * @param {string} input.writeMode 写入模式
  * @returns {string[]} 参数数组（不含 node 与入口）
@@ -119,6 +124,7 @@ export function buildArgs(input) {
     ARG.write, input.writeMode,
   ]
   if (input.hostname) args.push(ARG.hostname, input.hostname)
+  if (input.tunnelName) args.push(ARG.tunnelName, input.tunnelName)
   return args
 }
 

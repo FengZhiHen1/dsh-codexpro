@@ -50,6 +50,32 @@ test('buildArgs 至少包含 start 与核心参数', () => {
   assert.ok(args.includes('agent'))
 })
 
+test('buildArgs 在提供隧道名时传 --tunnel-name', () => {
+  const withName = buildArgs({
+    anchorDir: 'E:\\anchor',
+    port: '8787',
+    tunnel: 'cloudflare-named',
+    hostname: 'x.example.com',
+    tunnelName: 'codexpro',
+    bashMode: 'safe',
+    writeMode: 'workspace',
+  })
+  assert.ok(withName.includes('--tunnel-name'), '应传 --tunnel-name')
+  assert.equal(withName[withName.indexOf('--tunnel-name') + 1], 'codexpro')
+
+  // 未提供时不传：codexpro 只在 cloudflare-named 分支读它（scripts/codexpro.mjs:4405），
+  // 多传一个空值会让它拿到空串而非回落 profile。
+  const withoutName = buildArgs({
+    anchorDir: 'E:\\anchor',
+    port: '8787',
+    tunnel: 'ngrok',
+    hostname: 'x.ngrok-free.dev',
+    bashMode: 'safe',
+    writeMode: 'workspace',
+  })
+  assert.ok(!withoutName.includes('--tunnel-name'), '未提供隧道名时不应传该参数')
+})
+
 test('buildArgs 绝不含 --headless 与 --token', () => {
   const args = buildArgs({
     anchorDir: 'E:\\anchor',

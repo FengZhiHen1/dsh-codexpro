@@ -210,6 +210,7 @@ function makeForm(overrides = {}) {
     failed: false,
     tunnelMode: { text: 'none', overridden: false, invalid: false },
     tunnelHostname: { text: '', overridden: false, invalid: false },
+    tunnelName: { text: '', overridden: false, invalid: false },
     port: { text: '8787', overridden: false, invalid: false },
     bashMode: { text: 'safe', overridden: false, invalid: false },
     writeMode: { text: 'workspace', overridden: false, invalid: false },
@@ -499,6 +500,60 @@ test('中性实线边框一律 0.5px，半径走 token（无离格字面量）',
   assert.equal(theme.dividerStyle.height, theme.HAIRLINE)
   assert.match(theme.cardStyle.borderRadius, /^var\(--dsw-radius-/,
     '卡半径必须走 --dsw-radius-* token（v0.1.7 起离格字面量会被宿主守卫拒斥）')
+})
+
+test('隧道名输入框只在 cloudflare-named 下出现（条件字段）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+
+    /** 取当前树里的全部文本框占位符，用于判定字段是否出现。 */
+    const placeholders = (tree) => findAll(tree, (el) => el.type === 'input')
+      .map((el) => el.props?.placeholder)
+      .filter(Boolean)
+
+    // none：既无 hostname 也无隧道名。
+    const none = await renderCard(card, control)
+    assert.ok(!placeholders(none).includes('codexpro'), 'none 下不应出现隧道名输入框')
+
+    // ngrok：有 hostname，无隧道名（隧道名只对 cloudflare-named 有意义）。
+    const ngrok = await renderCard(card, control, {
+      form: makeForm({ tunnelMode: { text: 'ngrok', overridden: false, invalid: false } }),
+    })
+    assert.ok(placeholders(ngrok).includes('your-domain.ngrok-free.dev'), 'ngrok 下应出现 hostname')
+    assert.ok(!placeholders(ngrok).includes('codexpro'), 'ngrok 下不应出现隧道名')
+
+    // cloudflare-named：两者都出现（这是原先缺失的字段）。
+    const named = await renderCard(card, control, {
+      form: makeForm({ tunnelMode: { text: 'cloudflare-named', overridden: false, invalid: false } }),
+    })
+    const namedFields = placeholders(named)
+    assert.ok(namedFields.includes('your-domain.ngrok-free.dev'), 'cloudflare-named 下应出现 hostname')
+    assert.ok(namedFields.includes('codexpro'), 'cloudflare-named 下应出现隧道名输入框（原缺失）')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('隧道名字段有 128 上限的本地校验文案', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const form = await loadForm(root)
+    const spec = form.SPECS.find((item) => item.field === 'tunnelName')
+    assert.ok(spec, '应有 tunnelName 字段规格')
+    assert.deepEqual(spec.parse(''), { kind: 'clear' }, '空值表达为 clear')
+    assert.deepEqual(spec.parse('  codexpro  '), { kind: 'set', value: 'codexpro' }, '应去空白')
+    assert.equal(spec.parse('x'.repeat(129)), undefined, '超 128 应挡住保存')
+    assert.deepEqual(spec.parse('x'.repeat(128)), { kind: 'set', value: 'x'.repeat(128) })
+    // 条件字段判定与 core 词表同源。
+    assert.equal(form.needsTunnelName('cloudflare-named'), true)
+    for (const mode of ['none', 'cloudflare', 'ngrok', 'tailscale']) {
+      assert.equal(form.needsTunnelName(mode), false, `${mode} 不需要隧道名`)
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('字段规格：枚举取自 core 词表、端口限范围、授权集只留 true 且键有序', async () => {

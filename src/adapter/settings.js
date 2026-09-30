@@ -12,6 +12,8 @@ import {
   HOSTNAME_REQUIRED_TUNNELS,
   PORT_RANGE,
   TUNNEL_MODES,
+  TUNNEL_NAME_MAX_LENGTH,
+  TUNNEL_NAME_REQUIRED_TUNNELS,
   WRITE_MODES,
 } from '../core/codexpro.js'
 
@@ -29,6 +31,12 @@ export const Config = Schema.object({
   authorized: Schema.dict(Schema.boolean()).default({}).volatile(),
   tunnelMode: Schema.union(TUNNEL_MODES.map((mode) => Schema.const(mode))).default(DEFAULTS.tunnel).volatile(),
   tunnelHostname: Schema.string().default('').volatile(),
+  /**
+   * cloudflare 具名隧道的隧道名。codexpro 在 `--tunnel cloudflare-named` 且缺此值
+   * （且无令牌/配置文件）时直接抛错拒绝启动，故对那个取值是硬要求。
+   * 长度上限与 codexpro 的 profile schema 一致（128）。
+   */
+  tunnelName: Schema.string().max(TUNNEL_NAME_MAX_LENGTH).default('').volatile(),
   port: Schema.string().default(DEFAULTS.port).volatile(),
   bashMode: Schema.union(BASH_MODES.map((mode) => Schema.const(mode))).default(DEFAULTS.bash).volatile(),
   writeMode: Schema.union(WRITE_MODES.map((mode) => Schema.const(mode))).default(DEFAULTS.write).volatile(),
@@ -99,6 +107,20 @@ export function validateConfig(config) {
       throw new Error(`tunnelMode 为 ${tunnel} 时必须提供 tunnelHostname（codexpro 亦强制要求）`)
     }
   }
+
+  // 具名隧道还要求隧道名：codexpro 在缺它时直接抛错拒绝启动
+  // （scripts/codexpro.mjs:4421），故在挂载期就拦下，避免把必然失败的配置写进 profile。
+  if (TUNNEL_NAME_REQUIRED_TUNNELS.includes(tunnel)) {
+    const tunnelName = String(value.tunnelName ?? '').trim()
+    if (tunnelName === '') {
+      throw new Error(
+        `tunnelMode 为 ${tunnel} 时必须提供 tunnelName（codexpro 无令牌或配置文件时会拒绝启动）`,
+      )
+    }
+  }
+  // 反向情况（非具名 tunnel 却留着隧道名）不报错：用户从 cloudflare-named 切回
+  // 其他取值时若忘了清空，抛错会让整行挂载失败、只能手改 cordis.patch.yml 才能恢复。
+  // 陈旧值由 buildProfile 按其语义丢弃（只在 cloudflare-named 下写入），无害。
 
   const bash = String(value.bashMode ?? DEFAULTS.bash)
   if (!BASH_MODES.includes(bash)) {

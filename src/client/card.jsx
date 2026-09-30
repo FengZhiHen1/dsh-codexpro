@@ -13,7 +13,7 @@ import { createElement as h } from 'react'
 import { SettingsForm } from '@deepseek-ai/dsh-client-ui-primitives'
 import { HAIRLINE, R, S, T, cardStyle, captionText, noteText } from './theme.js'
 import { Divider, ErrorBar, StatePill } from './parts.jsx'
-import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, WRITE_MODE, authorizedOfText } from './form.js'
+import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, authorizedOfText } from './form.js'
 import { OptionsFields, WorkspacesField } from './panels.jsx'
 import { useCatalog } from './use-catalog.js'
 import { useProcess } from './use-process.js'
@@ -72,6 +72,7 @@ export function CodexProCard(props) {
         fields: {
           tunnelMode: form[TUNNEL_MODE],
           tunnelHostname: form[TUNNEL_HOSTNAME],
+          tunnelName: form[TUNNEL_NAME],
           port: form[PORT],
           bashMode: form[BASH_MODE],
           writeMode: form[WRITE_MODE],

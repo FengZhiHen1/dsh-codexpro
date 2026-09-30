@@ -55,6 +55,35 @@ test('buildProfile 与默认一致的字段不写入', () => {
   assert.ok(!('allowedRoots' in payload), '授权为空时不写入该键')
 })
 
+test('buildProfile 只在 cloudflare-named 下写入隧道名', () => {
+  const common = {
+    realAnchor: 'E:\\anchor',
+    allowedRoots: [],
+    port: '8787',
+    bashMode: 'safe',
+    writeMode: 'workspace',
+    token: '',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    mode: 'agent',
+  }
+  // 与 codexpro 同规则（dist/http.js:313）：隧道名只在具名 tunnel 下有意义。
+  const named = buildProfile({
+    ...common, tunnel: 'cloudflare-named', hostname: 'x.example.com', tunnelName: 'codexpro',
+  })
+  assert.equal(named.tunnelName, 'codexpro')
+
+  // 切到其他 tunnel 时陈旧名必须被丢弃，否则 codexpro 读到的 profile 里会留下无效键。
+  for (const tunnel of ['none', 'cloudflare', 'ngrok', 'tailscale']) {
+    const hostname = tunnel === 'none' || tunnel === 'cloudflare' ? '' : 'x.example.com'
+    const payload = buildProfile({ ...common, tunnel, hostname, tunnelName: 'stale' })
+    assert.ok(!('tunnelName' in payload), `tunnel=${tunnel} 时不应写入隧道名`)
+  }
+
+  // 具名 tunnel 但名为空：不写入该键（由 Host 校验在挂载期拦住，见 settings.test.mjs）。
+  const empty = buildProfile({ ...common, tunnel: 'cloudflare-named', hostname: 'x.example.com', tunnelName: '' })
+  assert.ok(!('tunnelName' in empty))
+})
+
 test('buildProfile 写入非默认字段与授权列表', () => {
   const payload = buildProfile({
     realAnchor: 'E:\\anchor',

@@ -12,6 +12,7 @@ export const ARG = Object.freeze({
   port: '--port',
   tunnel: '--tunnel',
   hostname: '--hostname',
+  tunnelName: '--tunnel-name',
   mode: '--mode',
   bash: '--bash',
   write: '--write',
@@ -43,6 +44,24 @@ export const TUNNEL_MODES = Object.freeze(['none', 'ngrok', 'cloudflare', 'cloud
 
 /** 需要公网 hostname 的 tunnel 取值（codexpro 对这三者强制要求 hostname）。 */
 export const HOSTNAME_REQUIRED_TUNNELS = Object.freeze(['ngrok', 'cloudflare-named', 'tailscale'])
+
+/**
+ * 需要具名隧道名的 tunnel 取值。
+ *
+ * codexpro 在 `--tunnel cloudflare-named` 且无隧道名/令牌/配置文件时直接抛错拒绝启动
+ * （scripts/codexpro.mjs:4421「--tunnel-name, --cloudflare-token, --cloudflare-token-file,
+ * or --cloudflare-config is required with --tunnel cloudflare-named.」），故该字段对
+ * 这个取值是硬要求，不是可选项。
+ */
+export const TUNNEL_NAME_REQUIRED_TUNNELS = Object.freeze(['cloudflare-named'])
+
+/**
+ * 具名隧道名的长度上限。
+ *
+ * codexpro 的 profile schema 用 `textField(128)` 声明该字段（dist/http.js:62），
+ * 超长值会被其设置面拒绝；此处提前拦到同一上限，避免「UI 接受、Host 拒绝」。
+ */
+export const TUNNEL_NAME_MAX_LENGTH = 128
 
 /** bash 执行模式取值（对应 codexpro 的 `--bash`）。 */
 export const BASH_MODES = Object.freeze(['off', 'safe', 'full'])

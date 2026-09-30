@@ -238,6 +238,7 @@ var ARG = Object.freeze({
   port: "--port",
   tunnel: "--tunnel",
   hostname: "--hostname",
+  tunnelName: "--tunnel-name",
   mode: "--mode",
   bash: "--bash",
   write: "--write"
@@ -245,6 +246,8 @@ var ARG = Object.freeze({
 var VERSION_ARGS = Object.freeze(["--version"]);
 var TUNNEL_MODES = Object.freeze(["none", "ngrok", "cloudflare", "cloudflare-named", "tailscale"]);
 var HOSTNAME_REQUIRED_TUNNELS = Object.freeze(["ngrok", "cloudflare-named", "tailscale"]);
+var TUNNEL_NAME_REQUIRED_TUNNELS = Object.freeze(["cloudflare-named"]);
+var TUNNEL_NAME_MAX_LENGTH = 128;
 var BASH_MODES = Object.freeze(["off", "safe", "full"]);
 var WRITE_MODES = Object.freeze(["off", "handoff", "workspace"]);
 var DEFAULTS = Object.freeze({
@@ -259,6 +262,7 @@ var PORT_RANGE = Object.freeze({ min: 1, max: 65535 });
 var AUTHORIZED = "authorized";
 var TUNNEL_MODE = "tunnelMode";
 var TUNNEL_HOSTNAME = "tunnelHostname";
+var TUNNEL_NAME = "tunnelName";
 var PORT = "port";
 var BASH_MODE = "bashMode";
 var WRITE_MODE = "writeMode";
@@ -320,14 +324,28 @@ var portSpec = {
     return { kind: "set", value: trimmed };
   }
 };
+var tunnelNameSpec = {
+  field: TUNNEL_NAME,
+  format: (value) => typeof value === "string" ? value : "",
+  parse: (text) => {
+    const trimmed = String(text).trim();
+    if (trimmed === "") return { kind: "clear" };
+    if (trimmed.length > TUNNEL_NAME_MAX_LENGTH) return void 0;
+    return { kind: "set", value: trimmed };
+  }
+};
 var SPECS = [
   optionSpec(TUNNEL_MODE, TUNNEL_MODES),
   (0, import_dsh_client_ui_primitives.settingsTextField)(TUNNEL_HOSTNAME),
+  tunnelNameSpec,
   portSpec,
   optionSpec(BASH_MODE, BASH_MODES),
   optionSpec(WRITE_MODE, WRITE_MODES),
   authorizedSpec
 ];
+function needsTunnelName(tunnelMode) {
+  return TUNNEL_NAME_REQUIRED_TUNNELS.includes(String(tunnelMode));
+}
 function projection(form) {
   const state = { ...form.shell() };
   for (const spec of SPECS) state[spec.field] = form.field(spec.field);
@@ -371,6 +389,13 @@ var HELP = {
     "cloudflare-named\uFF1A\u4F60\u5728 Cloudflare \u4E3A\u8BE5\u96A7\u9053\u7ED1\u5B9A\u7684\u81EA\u5B9A\u4E49\u57DF\u540D\u3002",
     "tailscale\uFF1A\u5F62\u5982 your-device.your-tailnet.ts.net\uFF08Tailscale \u5206\u914D\u7684\u8282\u70B9\u540D\uFF09\u3002",
     "\u586B\u9519\u4E0D\u4F1A\u7ACB\u523B\u62A5\u9519\uFF0C\u4F46 ChatGPT \u4F1A\u8FDE\u4E0D\u4E0A\u2014\u2014\u5B83\u89E3\u6790\u7684\u5C31\u662F\u8FD9\u4E2A\u57DF\u540D\u3002"
+  ],
+  tunnelName: [
+    "\u4F60\u5728 Cloudflare \u5EFA\u597D\u7684\u90A3\u6761\u5177\u540D\u96A7\u9053\u7684\u540D\u5B57\uFF08cloudflared \u4FA7\u7684 tunnel name / UUID\uFF09\uFF0C\u4E0D\u662F\u57DF\u540D\u3002",
+    "\u521B\u5EFA\u65B9\u5F0F\uFF1A\u5728 Cloudflare Zero Trust \u540E\u53F0\u65B0\u5EFA\u4E00\u6761 Tunnel\uFF0C\u540D\u5B57\u968F\u4F60\u53D6\uFF08\u5982 codexpro\uFF09\uFF0C\u5EFA\u597D\u540E\u628A\u5B83\u586B\u5728\u8FD9\u91CC\u3002",
+    "\u6CE8\u610F\u533A\u5206\u4E24\u4E2A\u503C\uFF1A\u96A7\u9053\u540D\u662F Cloudflare \u4E0A\u7684\u6807\u8BC6\uFF0C\u516C\u7F51 hostname \u662F\u5916\u90E8\u8BBF\u95EE\u7528\u7684\u57DF\u540D\u2014\u2014\u4E24\u4E2A\u90FD\u8981\u586B\u3002",
+    "\u4E0D\u586B\u7684\u8BDD codexpro \u4F1A\u76F4\u63A5\u62D2\u7EDD\u542F\u52A8\u5E76\u62A5\u300C--tunnel-name ... is required\u300D\u3002",
+    "\u5982\u679C\u4E0D\u7528\u5177\u540D\u96A7\u9053\uFF0C\u628A Tunnel \u65B9\u5F0F\u6362\u6210 none \u6216 cloudflare \u5373\u53EF\uFF08\u90A3\u6837\u8FD9\u4E2A\u5B57\u6BB5\u4F1A\u6D88\u5931\uFF09\u3002"
   ],
   port: [
     "codexpro \u5728\u672C\u673A\u76D1\u542C\u7684\u7AEF\u53E3\uFF0C\u9ED8\u8BA4 8787\u3002",
@@ -453,54 +478,77 @@ function Group({ title, note, children }) {
     children
   ]);
 }
+function NetworkGroup({ fields, disabled, onEdit }) {
+  const needsHost = NEEDS_HOSTNAME.has(fields.tunnelMode.text);
+  const needsName = needsTunnelName(fields.tunnelMode.text);
+  return (0, import_react2.createElement)(Group, { title: "\u7F51\u7EDC\u63A5\u5165", note: "ChatGPT \u901A\u8FC7\u54EA\u4E2A\u5730\u5740\u8FDE\u5230\u672C\u673A\u3002\u6539\u5B8C\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002" }, [
+    (0, import_react2.createElement)(FieldBox, {
+      key: "tunnel",
+      label: "Tunnel \u65B9\u5F0F",
+      first: true,
+      hint: "\u9ED8\u8BA4 none\uFF1A\u53EA\u5728\u672C\u673A\u53EF\u7528\uFF0C\u4E0D\u66B4\u9732\u5230\u516C\u7F51",
+      help: HELP.tunnelMode
+    }, (0, import_react2.createElement)("select", {
+      value: fields.tunnelMode.text,
+      disabled,
+      onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
+      style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "320px" }
+    }, TUNNEL_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
+    needsHost ? (0, import_react2.createElement)(FieldBox, {
+      key: "hostname",
+      label: "\u516C\u7F51 hostname",
+      hint: "\u8BE5 tunnel \u65B9\u5F0F\u5FC5\u9700\uFF0Ccodexpro \u4EA6\u5F3A\u5236\u8981\u6C42",
+      help: HELP.tunnelHostname
+    }, (0, import_react2.createElement)("input", {
+      type: "text",
+      value: fields.tunnelHostname.text,
+      disabled,
+      placeholder: "your-domain.ngrok-free.dev",
+      onChange: (event) => onEdit(TUNNEL_HOSTNAME, event.target.value),
+      style: { ...fieldStyle, maxWidth: "320px" }
+    })) : null,
+    needsName ? (0, import_react2.createElement)(FieldBox, {
+      key: "tunnelName",
+      label: "Cloudflare \u96A7\u9053\u540D",
+      hint: "Cloudflare \u540E\u53F0\u91CC\u90A3\u6761\u5177\u540D\u96A7\u9053\u7684\u540D\u5B57\uFF1B\u4E0E\u4E0A\u9762\u7684 hostname \u662F\u4E24\u4E2A\u4E0D\u540C\u7684\u503C",
+      help: HELP.tunnelName
+    }, (0, import_react2.createElement)("input", {
+      type: "text",
+      value: fields.tunnelName.text,
+      disabled,
+      placeholder: "codexpro",
+      "aria-invalid": fields.tunnelName.invalid ? true : void 0,
+      onChange: (event) => onEdit(TUNNEL_NAME, event.target.value),
+      style: {
+        ...fieldStyle,
+        maxWidth: "320px",
+        borderColor: fields.tunnelName.invalid ? T.error : T.borderL4
+      }
+    }), fields.tunnelName.invalid ? (0, import_react2.createElement)("p", { key: "bad", style: { ...hintText, color: T.error } }, "\u96A7\u9053\u540D\u4E0D\u80FD\u8D85\u8FC7 128 \u4E2A\u5B57\u7B26") : null) : null,
+    (0, import_react2.createElement)(FieldBox, {
+      key: "port",
+      label: "\u672C\u5730\u7AEF\u53E3",
+      hint: "\u4EC5\u5728\u672C\u673A\u7AEF\u53E3\u51B2\u7A81\u65F6\u624D\u9700\u4FEE\u6539",
+      help: HELP.port
+    }, (0, import_react2.createElement)("input", {
+      type: "text",
+      inputMode: "numeric",
+      value: fields.port.text,
+      disabled,
+      placeholder: "8787",
+      "aria-invalid": fields.port.invalid ? true : void 0,
+      onChange: (event) => onEdit(PORT, event.target.value),
+      style: {
+        ...fieldStyle,
+        maxWidth: "140px",
+        borderColor: fields.port.invalid ? T.error : T.borderL4
+      }
+    }), fields.port.invalid ? (0, import_react2.createElement)("p", { key: "bad", style: { ...hintText, color: T.error } }, "\u7AEF\u53E3\u9700\u4E3A 1\u201365535 \u7684\u6574\u6570") : null)
+  ]);
+}
 function OptionsFields({ fields, disabled, onEdit, onReset }) {
   return (0, import_react2.createElement)("div", null, [
-    (0, import_react2.createElement)(Group, { key: "net", title: "\u7F51\u7EDC\u63A5\u5165", note: "ChatGPT \u901A\u8FC7\u54EA\u4E2A\u5730\u5740\u8FDE\u5230\u672C\u673A\u3002\u6539\u5B8C\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\u3002" }, [
-      (0, import_react2.createElement)(FieldBox, {
-        key: "tunnel",
-        label: "Tunnel \u65B9\u5F0F",
-        first: true,
-        hint: "\u9ED8\u8BA4 none\uFF1A\u53EA\u5728\u672C\u673A\u53EF\u7528\uFF0C\u4E0D\u66B4\u9732\u5230\u516C\u7F51",
-        help: HELP.tunnelMode
-      }, (0, import_react2.createElement)("select", {
-        value: fields.tunnelMode.text,
-        disabled,
-        onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-        style: { ...fieldStyle, cursor: disabled ? "default" : "pointer", maxWidth: "320px" }
-      }, TUNNEL_MODES.map((mode) => (0, import_react2.createElement)("option", { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
-      NEEDS_HOSTNAME.has(fields.tunnelMode.text) ? (0, import_react2.createElement)(FieldBox, {
-        key: "hostname",
-        label: "\u516C\u7F51 hostname",
-        hint: "\u8BE5 tunnel \u65B9\u5F0F\u5FC5\u9700\uFF0Ccodexpro \u4EA6\u5F3A\u5236\u8981\u6C42",
-        help: HELP.tunnelHostname
-      }, (0, import_react2.createElement)("input", {
-        type: "text",
-        value: fields.tunnelHostname.text,
-        disabled,
-        placeholder: "your-domain.ngrok-free.dev",
-        onChange: (event) => onEdit(TUNNEL_HOSTNAME, event.target.value),
-        style: { ...fieldStyle, maxWidth: "320px" }
-      })) : null,
-      (0, import_react2.createElement)(FieldBox, {
-        key: "port",
-        label: "\u672C\u5730\u7AEF\u53E3",
-        hint: "\u4EC5\u5728\u672C\u673A\u7AEF\u53E3\u51B2\u7A81\u65F6\u624D\u9700\u4FEE\u6539",
-        help: HELP.port
-      }, (0, import_react2.createElement)("input", {
-        type: "text",
-        inputMode: "numeric",
-        value: fields.port.text,
-        disabled,
-        placeholder: "8787",
-        "aria-invalid": fields.port.invalid ? true : void 0,
-        onChange: (event) => onEdit(PORT, event.target.value),
-        style: {
-          ...fieldStyle,
-          maxWidth: "140px",
-          borderColor: fields.port.invalid ? T.error : T.borderL4
-        }
-      }), fields.port.invalid ? (0, import_react2.createElement)("p", { key: "bad", style: { ...hintText, color: T.error } }, "\u7AEF\u53E3\u9700\u4E3A 1\u201365535 \u7684\u6574\u6570") : null)
-    ]),
+    (0, import_react2.createElement)(NetworkGroup, { key: "net", fields, disabled, onEdit }),
     (0, import_react2.createElement)(Group, { key: "perm", title: "\u6743\u9650", note: "\u51B3\u5B9A ChatGPT \u80FD\u5728\u4F60\u7684\u9879\u76EE\u91CC\u505A\u5230\u4EC0\u4E48\u7A0B\u5EA6\uFF0C\u662F\u98CE\u9669\u63A7\u5236\u7684\u4E3B\u8981\u5F00\u5173\u3002" }, [
       (0, import_react2.createElement)(FieldBox, {
         key: "bash",
@@ -662,6 +710,7 @@ function CodexProCard(props) {
         fields: {
           tunnelMode: form[TUNNEL_MODE],
           tunnelHostname: form[TUNNEL_HOSTNAME],
+          tunnelName: form[TUNNEL_NAME],
           port: form[PORT],
           bashMode: form[BASH_MODE],
           writeMode: form[WRITE_MODE]

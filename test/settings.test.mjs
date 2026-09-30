@@ -61,10 +61,50 @@ test('validateConfig 要求具名 tunnel 提供 hostname', () => {
       () => validateConfig({ port: '8787', tunnelMode: tunnel, tunnelHostname: '', bashMode: 'safe', writeMode: 'workspace' }),
       /tunnelHostname/,
     )
+  }
+})
+
+test('validateConfig 要求 cloudflare-named 提供隧道名', () => {
+  // codexpro 在 `--tunnel cloudflare-named` 且无隧道名/令牌/配置文件时直接抛错
+  // （scripts/codexpro.mjs:4421），故缺它必须在本地就拦下。
+  assert.throws(
+    () => validateConfig({
+      port: '8787', tunnelMode: 'cloudflare-named', tunnelHostname: 'x.example.com',
+      tunnelName: '', bashMode: 'safe', writeMode: 'workspace',
+    }),
+    /tunnelName/,
+  )
+  assert.doesNotThrow(() => validateConfig({
+    port: '8787', tunnelMode: 'cloudflare-named', tunnelHostname: 'x.example.com',
+    tunnelName: 'codexpro', bashMode: 'safe', writeMode: 'workspace',
+  }))
+})
+
+test('validateConfig 对非具名 tunnel 不要求隧道名（hostname 仍要求）', () => {
+  for (const tunnel of ['ngrok', 'tailscale']) {
     assert.doesNotThrow(() => validateConfig({
-      port: '8787', tunnelMode: tunnel, tunnelHostname: 'x.example.com', bashMode: 'safe', writeMode: 'workspace',
+      port: '8787', tunnelMode: tunnel, tunnelHostname: 'x.example.com',
+      tunnelName: '', bashMode: 'safe', writeMode: 'workspace',
     }))
   }
+})
+
+test('validateConfig 容忍陈旧隧道名（避免切走 tunnel 后整行挂载失败）', () => {
+  // 用户从 cloudflare-named 切回 none 却忘了清空隧道名时必须仍能挂载：
+  // 抛错会让整行 FAILED、只能手改 cordis.patch.yml 恢复。陈旧值由 buildProfile 丢弃。
+  for (const tunnel of ['none', 'cloudflare', 'ngrok', 'tailscale']) {
+    const hostname = tunnel === 'none' || tunnel === 'cloudflare' ? '' : 'x.example.com'
+    assert.doesNotThrow(() => validateConfig({
+      port: '8787', tunnelMode: tunnel, tunnelHostname: hostname,
+      tunnelName: 'stale-name', bashMode: 'safe', writeMode: 'workspace',
+    }), `tunnel=${tunnel} 时陈旧隧道名不应阻断挂载`)
+  }
+})
+
+test('tunnelName 有 128 字符上限（与 codexpro 的 textField(128) 一致）', () => {
+  const long = 'x'.repeat(129)
+  assert.throws(() => Schema.resolve({ tunnelName: long }, Config, { path: [] }), /tunnelName|length|max/i)
+  assert.doesNotThrow(() => Schema.resolve({ tunnelName: 'x'.repeat(128) }, Config, { path: [] }))
 })
 
 test('validateConfig 对 none 与 cloudflare 不要求 hostname', () => {

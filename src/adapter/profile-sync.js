@@ -83,6 +83,7 @@ export function createProfileSync({ dshHome, snapshot, listWorkspaces }) {
       port: pick(values, 'port', DEFAULTS.port),
       tunnel: pick(values, 'tunnelMode', DEFAULTS.tunnel),
       hostname: pick(values, 'tunnelHostname', ''),
+      tunnelName: pick(values, 'tunnelName', ''),
       bashMode: pick(values, 'bashMode', DEFAULTS.bash),
       writeMode: pick(values, 'writeMode', DEFAULTS.write),
       token: pick(values, 'httpToken', ''),

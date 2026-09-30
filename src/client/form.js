@@ -9,7 +9,14 @@
 //   ui-settings-shell/src/client/shell-card-controller.ts、ui-settings-agent-loop 同名文件。
 
 import { SettingsFormModel, settingsTextField } from '@deepseek-ai/dsh-client-ui-primitives'
-import { BASH_MODES, PORT_RANGE, TUNNEL_MODES, WRITE_MODES } from '../core/codexpro.js'
+import {
+  BASH_MODES,
+  PORT_RANGE,
+  TUNNEL_MODES,
+  TUNNEL_NAME_MAX_LENGTH,
+  TUNNEL_NAME_REQUIRED_TUNNELS,
+  WRITE_MODES,
+} from '../core/codexpro.js'
 
 /** 授权集字段名（Host Config 的 dict 字段）。 */
 export const AUTHORIZED = 'authorized'
@@ -17,6 +24,8 @@ export const AUTHORIZED = 'authorized'
 export const TUNNEL_MODE = 'tunnelMode'
 /** 公网 hostname 字段名。 */
 export const TUNNEL_HOSTNAME = 'tunnelHostname'
+/** cloudflare 具名隧道的隧道名字段名。 */
+export const TUNNEL_NAME = 'tunnelName'
 /** 本地端口字段名。 */
 export const PORT = 'port'
 /** bash 模式字段名。 */
@@ -135,15 +144,45 @@ const portSpec = {
   },
 }
 
-/** 本页编辑的全部字段——Host Config 的六个 volatile 键。 */
+/**
+ * 具名隧道名字段的规格。
+ *
+ * 长度上限镜像 Host schema（Schema.string().max(128)）与 codexpro 自身的
+ * `textField(128)`：超长会被 Host 拒，故在本地同样挡住保存，避免「本地看着合法、
+ * 跨网后被拒」的多余往返。
+ * 空文本表达为 clear（回落默认），非空写入去空白后的值。
+ * @type {object}
+ */
+const tunnelNameSpec = {
+  field: TUNNEL_NAME,
+  format: (value) => (typeof value === 'string' ? value : ''),
+  parse: (text) => {
+    const trimmed = String(text).trim()
+    if (trimmed === '') return { kind: 'clear' }
+    if (trimmed.length > TUNNEL_NAME_MAX_LENGTH) return undefined
+    return { kind: 'set', value: trimmed }
+  },
+}
+
+/** 本页编辑的全部字段——Host Config 的七个 volatile 键。 */
 export const SPECS = [
   optionSpec(TUNNEL_MODE, TUNNEL_MODES),
   settingsTextField(TUNNEL_HOSTNAME),
+  tunnelNameSpec,
   portSpec,
   optionSpec(BASH_MODE, BASH_MODES),
   optionSpec(WRITE_MODE, WRITE_MODES),
   authorizedSpec,
 ]
+
+/**
+ * 当前 tunnel 取值是否要求具名隧道名（决定 UI 是否显示该字段）。
+ * @param {unknown} tunnelMode tunnel 取值
+ * @returns {boolean} 需要时为 true
+ */
+export function needsTunnelName(tunnelMode) {
+  return TUNNEL_NAME_REQUIRED_TUNNELS.includes(String(tunnelMode))
+}
 
 /**
  * 由表单模型构造页面读取的投影。

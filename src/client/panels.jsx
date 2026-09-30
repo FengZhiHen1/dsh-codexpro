@@ -14,7 +14,7 @@ import { createElement as h, useState } from 'react'
 import { Checkbox, IconInfoOutlineRegular, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { BASH_MODES, HOSTNAME_REQUIRED_TUNNELS, TUNNEL_MODES, WRITE_MODES } from '../core/codexpro.js'
 import { HAIRLINE, R, T, captionText, fieldBox, fieldLabel, fieldStyle, groupBox, groupTitle, hintText } from './theme.js'
-import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, WRITE_MODE } from './form.js'
+import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, needsTunnelName } from './form.js'
 
 /** tunnel 取值的下拉文案（取值来自 core 的权威词表）。 */
 const TUNNEL_LABELS = {
@@ -48,6 +48,13 @@ const HELP = {
     'cloudflare-named：你在 Cloudflare 为该隧道绑定的自定义域名。',
     'tailscale：形如 your-device.your-tailnet.ts.net（Tailscale 分配的节点名）。',
     '填错不会立刻报错，但 ChatGPT 会连不上——它解析的就是这个域名。',
+  ],
+  tunnelName: [
+    '你在 Cloudflare 建好的那条具名隧道的名字（cloudflared 侧的 tunnel name / UUID），不是域名。',
+    '创建方式：在 Cloudflare Zero Trust 后台新建一条 Tunnel，名字随你取（如 codexpro），建好后把它填在这里。',
+    '注意区分两个值：隧道名是 Cloudflare 上的标识，公网 hostname 是外部访问用的域名——两个都要填。',
+    '不填的话 codexpro 会直接拒绝启动并报「--tunnel-name ... is required」。',
+    '如果不用具名隧道，把 Tunnel 方式换成 none 或 cloudflare 即可（那样这个字段会消失）。',
   ],
   port: [
     'codexpro 在本机监听的端口，默认 8787。',
@@ -161,7 +168,93 @@ function Group({ title, note, children }) {
 }
 
 /**
- * 参数字段组：网络 / 权限 / 模式三组。
+ * 网络接入组：tunnel 方式与（按取值条件出现的）hostname、隧道名、端口。
+ *
+ * 抽为独立函数：三个条件字段（hostname / 隧道名按 tunnel 取值显隐）+ 端口，
+ * 留在 OptionsFields 内会把那个函数体撑到触发复杂度告警，而这里没有额外分支。
+ * @param {object} props 组件属性
+ * @param {object} props.fields 各字段的官方状态
+ * @param {boolean} props.disabled 是否禁用
+ * @param {Function} props.onEdit 暂存草稿
+ * @returns {object} React 元素
+ */
+function NetworkGroup({ fields, disabled, onEdit }) {
+  const needsHost = NEEDS_HOSTNAME.has(fields.tunnelMode.text)
+  const needsName = needsTunnelName(fields.tunnelMode.text)
+  return h(Group, { title: '网络接入', note: 'ChatGPT 通过哪个地址连到本机。改完需重启进程才生效。' }, [
+    h(FieldBox, {
+      key: 'tunnel',
+      label: 'Tunnel 方式',
+      first: true,
+      hint: '默认 none：只在本机可用，不暴露到公网',
+      help: HELP.tunnelMode,
+    }, h('select', {
+      value: fields.tunnelMode.text,
+      disabled,
+      onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
+      style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '320px' },
+    }, TUNNEL_MODES.map((mode) => h('option', { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
+    needsHost
+      ? h(FieldBox, {
+        key: 'hostname',
+        label: '公网 hostname',
+        hint: '该 tunnel 方式必需，codexpro 亦强制要求',
+        help: HELP.tunnelHostname,
+      }, h('input', {
+        type: 'text',
+        value: fields.tunnelHostname.text,
+        disabled,
+        placeholder: 'your-domain.ngrok-free.dev',
+        onChange: (event) => onEdit(TUNNEL_HOSTNAME, event.target.value),
+        style: { ...fieldStyle, maxWidth: '320px' },
+      }))
+      : null,
+    needsName
+      ? h(FieldBox, {
+        key: 'tunnelName',
+        label: 'Cloudflare 隧道名',
+        hint: 'Cloudflare 后台里那条具名隧道的名字；与上面的 hostname 是两个不同的值',
+        help: HELP.tunnelName,
+      }, h('input', {
+        type: 'text',
+        value: fields.tunnelName.text,
+        disabled,
+        placeholder: 'codexpro',
+        'aria-invalid': fields.tunnelName.invalid ? true : undefined,
+        onChange: (event) => onEdit(TUNNEL_NAME, event.target.value),
+        style: {
+          ...fieldStyle,
+          maxWidth: '320px',
+          borderColor: fields.tunnelName.invalid ? T.error : T.borderL4,
+        },
+      }), fields.tunnelName.invalid
+        ? h('p', { key: 'bad', style: { ...hintText, color: T.error } }, '隧道名不能超过 128 个字符')
+        : null)
+      : null,
+    h(FieldBox, {
+      key: 'port',
+      label: '本地端口',
+      hint: '仅在本机端口冲突时才需修改',
+      help: HELP.port,
+    }, h('input', {
+      type: 'text',
+      inputMode: 'numeric',
+      value: fields.port.text,
+      disabled,
+      placeholder: '8787',
+      'aria-invalid': fields.port.invalid ? true : undefined,
+      onChange: (event) => onEdit(PORT, event.target.value),
+      style: {
+        ...fieldStyle,
+        maxWidth: '140px',
+        borderColor: fields.port.invalid ? T.error : T.borderL4,
+      },
+    }), fields.port.invalid ? h('p', { key: 'bad', style: { ...hintText, color: T.error } }, '端口需为 1–65535 的整数') : null),
+  ])
+}
+
+/**
+ * 参数字段组：网络 / 权限两组。
  * @param {object} props 组件属性
  * @param {object} props.fields 各字段的官方状态（text/overridden/invalid）
  * @param {boolean} props.disabled 是否禁用
@@ -171,54 +264,7 @@ function Group({ title, note, children }) {
  */
 export function OptionsFields({ fields, disabled, onEdit, onReset }) {
   return h('div', null, [
-    h(Group, { key: 'net', title: '网络接入', note: 'ChatGPT 通过哪个地址连到本机。改完需重启进程才生效。' }, [
-      h(FieldBox, {
-        key: 'tunnel',
-        label: 'Tunnel 方式',
-        first: true,
-        hint: '默认 none：只在本机可用，不暴露到公网',
-        help: HELP.tunnelMode,
-      }, h('select', {
-        value: fields.tunnelMode.text,
-        disabled,
-        onChange: (event) => onEdit(TUNNEL_MODE, event.target.value),
-        style: { ...fieldStyle, cursor: disabled ? 'default' : 'pointer', maxWidth: '320px' },
-      }, TUNNEL_MODES.map((mode) => h('option', { key: mode, value: mode }, TUNNEL_LABELS[mode] ?? mode)))),
-      NEEDS_HOSTNAME.has(fields.tunnelMode.text)
-        ? h(FieldBox, {
-          key: 'hostname',
-          label: '公网 hostname',
-          hint: '该 tunnel 方式必需，codexpro 亦强制要求',
-          help: HELP.tunnelHostname,
-        }, h('input', {
-          type: 'text',
-          value: fields.tunnelHostname.text,
-          disabled,
-          placeholder: 'your-domain.ngrok-free.dev',
-          onChange: (event) => onEdit(TUNNEL_HOSTNAME, event.target.value),
-          style: { ...fieldStyle, maxWidth: '320px' },
-        }))
-        : null,
-      h(FieldBox, {
-        key: 'port',
-        label: '本地端口',
-        hint: '仅在本机端口冲突时才需修改',
-        help: HELP.port,
-      }, h('input', {
-        type: 'text',
-        inputMode: 'numeric',
-        value: fields.port.text,
-        disabled,
-        placeholder: '8787',
-        'aria-invalid': fields.port.invalid ? true : undefined,
-        onChange: (event) => onEdit(PORT, event.target.value),
-        style: {
-          ...fieldStyle,
-          maxWidth: '140px',
-          borderColor: fields.port.invalid ? T.error : T.borderL4,
-        },
-      }), fields.port.invalid ? h('p', { key: 'bad', style: { ...hintText, color: T.error } }, '端口需为 1–65535 的整数') : null),
-    ]),
+    h(NetworkGroup, { key: 'net', fields, disabled, onEdit }),
     h(Group, { key: 'perm', title: '权限', note: '决定 ChatGPT 能在你的项目里做到什么程度，是风险控制的主要开关。' }, [
       h(FieldBox, {
         key: 'bash',

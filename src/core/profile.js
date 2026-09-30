@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { PROFILES_SEGMENT } from './anchor.js'
-import { DEFAULTS } from './codexpro.js'
+import { DEFAULTS, TUNNEL_NAME_REQUIRED_TUNNELS } from './codexpro.js'
 
 /** profile ID 取哈希前 24 个十六进制字符（codexpro 自身约定）。 */
 const ID_LENGTH = 24
@@ -18,6 +18,13 @@ const PROFILE_VERSION = 1
 
 /** token 在 profile 中的字段名。经 profile 文件传递而非环境变量，见技术栈设计.md S-02。 */
 const TOKEN_FIELD = 'token'
+
+/**
+ * 需要具名隧道的 tunnel 取值（只有一个，取词表首项）。
+ * 从 core/codexpro.js 引用而非另写字面量：隧道名的生效条件两处必须一致，
+ * 分歧会导致「profile 写了名字但被丢弃」这类静默失效。
+ */
+const CLOUDFLARE_NAMED = TUNNEL_NAME_REQUIRED_TUNNELS[0]
 
 /**
  * 由锚点路径推导 profile ID。
@@ -56,6 +63,7 @@ export function normalizeAllowedRoots(roots) {
  * @param {string} input.port 本地端口
  * @param {string} input.tunnel tunnel 取值
  * @param {string} [input.hostname] 具名 tunnel 的 hostname；空值不写入
+ * @param {string} [input.tunnelName] cloudflare 具名隧道的隧道名；空值或非该 tunnel 时不写入
  * @param {string} input.bashMode bash 模式
  * @param {string} input.writeMode 写入模式
  * @param {string} input.token HTTP token；空串表示不写入该键
@@ -73,6 +81,10 @@ export function buildProfile(input) {
     tunnel: input.tunnel,
   }
   if (input.hostname) payload.hostname = input.hostname
+  // 与 codexpro 自身同规则：隧道名只在 cloudflare-named 下有意义，切换 tunnel 时它会被丢弃
+  // （dist/http.js:313「next.tunnel === "cloudflare-named" ? next.tunnelName : ""」），
+  // 故此处也只在两者同时成立时写入，避免在 profile 里留下无人读取的陈旧键。
+  if (input.tunnel === CLOUDFLARE_NAMED && input.tunnelName) payload.tunnelName = input.tunnelName
   if (input.bashMode !== DEFAULTS.bash) payload.bash = input.bashMode
   if (input.writeMode !== DEFAULTS.write) payload.write = input.writeMode
   if (input.token) payload[TOKEN_FIELD] = input.token
