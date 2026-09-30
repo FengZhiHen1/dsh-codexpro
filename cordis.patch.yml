@@ -1,0 +1,6 @@
+# dsh-codexpro install layer — one insert row. The row's id is the stable
+# identity for profile-level overrides and the settings namespace; name resolves
+# the Node module. The row id must match the `plugins.row.config` key suffix.
+- insert:
+    - id: codexpro
+      name: dsh-codexpro

@@ -1,0 +1,65 @@
+{
+  "name": "dsh-codexpro",
+  "version": "0.1.0",
+  "description": "DSH 插件：在设置页管理各项目对应的 codexpro 配置——以 DSH 工作区为唯一授权来源同步 codexpro profile，并托管其进程启停与 tunnel 方式。",
+  "type": "module",
+  "main": "./src/adapter/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FengZhiHen1/dsh-codexpro.git"
+  },
+  "exports": {
+    ".": "./src/adapter/index.js",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "files": [
+    "src/",
+    "dist/",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build-client.mjs",
+    "check": "node build-client.mjs --check && node ../../tools/plugin-layering-check.mjs . && node --test test/*.test.mjs",
+    "layering": "node ../../tools/plugin-layering-check.mjs .",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-settings": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-subprocess": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-workspace": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.7-rc.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-settings": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-subprocess": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-workspace": "^0.1.7-rc.2",
+    "esbuild": "^0.28.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-connection"
+      ]
+    }
+  }
+}
