@@ -51,12 +51,16 @@ export const HAIRLINE = '0.5px'
  * @param {string} color CSS 颜色值
  * @returns {object} 样式片段
  */
-export const badgeStyle = (color) => ({
+const badgeStyle = (color) => ({
   color,
   background: `color-mix(in srgb, ${color} 15%, transparent)`,
 })
 
-/** 状态徽章几何基元（对齐原生 pill：全圆角 + 11px）。 */
+/**
+ * 状态徽章几何基元（对齐原生 pill：全圆角 + 11px）。
+ *
+ * 导出供 UI 规格测试断言 corner-shape 配套（该配对是易被误删的视觉约束）。
+ */
 export const pillBase = {
   display: 'inline-block',
   padding: '0 7px',
@@ -101,9 +105,6 @@ export const cardStyle = {
   overflow: 'hidden',
 }
 
-/** 浅底子卡（卡内分组）。 */
-export const subCardStyle = { borderRadius: R.md, background: T.bgModulePlatform }
-
 /** 分隔线（卡内行间）。 */
 export const dividerStyle = { height: HAIRLINE, background: T.borderL2, flex: 'none' }
 
@@ -112,20 +113,6 @@ export const noteText = { fontSize: '13px', color: T.labelTertiary, lineHeight: 
 
 /** 更弱一级文本（官方 caption，用于计数与最弱说明）。 */
 export const captionText = { fontSize: '12px', color: T.labelCaption, lineHeight: '18px' }
-
-/** 段标题（官方设置节 heading：18px/600）。 */
-export const sectionHead = { margin: 0, fontSize: '18px', fontWeight: 600, color: T.labelPrimary, lineHeight: '26px' }
-
-/** 小尺寸文字钮（行内操作）。 */
-export const linkBtn = {
-  border: 'none',
-  background: 'none',
-  padding: 0,
-  font: 'inherit',
-  fontSize: '12px',
-  color: T.labelSecondary,
-  cursor: 'pointer',
-}
 
 /** 文本输入基元（原生设置同构：浅底小圆角、0.5px 描边）。 */
 export const fieldStyle = {
@@ -144,7 +131,7 @@ export const fieldStyle = {
  * 未知状态回落为「未知」，不谎报运行中。
  * @type {Readonly<Record<string, {label: string, kind: 'ok'|'warn'|'error'|'idle'}>>}
  */
-export const STATE_DISPLAY = Object.freeze({
+const STATE_DISPLAY = Object.freeze({
   idle: { label: '未运行', kind: 'idle' },
   starting: { label: '启动中', kind: 'warn' },
   running: { label: '运行中', kind: 'ok' },

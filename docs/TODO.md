@@ -15,6 +15,14 @@
 
 实测场为隔离的 `CODEXPRO_HOME` 与合成工作区（`%TEMP%` 下），未触碰真实 `~/.codexpro`（实测后确认其仍不存在）。探针脚本见 `tmp/codexpro-probe/`（仓库 `.gitignore` 已排除 `tmp/`）。
 
+## 已完成重构（2026-09-30）
+
+| 项 | 结论 | 落点 |
+|----|------|------|
+| 配置读写改官方通道 | 配置字段读写改经 `configForms` + `SettingsFormModel`；端点收敛为 `catalog`/`status`/`start`/`stop` 四条；配置页留在 `plugins.row.config` 且不自带卡片壳/页签栏 | DSR-009、`technical-details/RPC通道与设置页.md` §二/§五 |
+
+原自建表单（`src/client/use-config.js`）与其测试已删除；其中「启动失败原因必须对用户可见」的回归已迁移到 `test/use-process.test.mjs`。
+
 ## 未决事项
 
 | # | 事项 | 说明 |

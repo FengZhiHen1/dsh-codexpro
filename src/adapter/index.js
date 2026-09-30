@@ -6,7 +6,6 @@
 
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { stat } from 'node:fs/promises'
 import { createDispatcher } from './endpoints.js'
 import { readHealth } from './health.js'
 import { ProcessManager, buildArgs, probeVersion, resolveEntry } from './process.js'
@@ -37,10 +36,21 @@ function apply(ctx, config = {}) {
 
   const readConfig = configReader(config)
   const manager = new ProcessManager({ subprocess: /** @type {any} */ (ctx).subprocess, logger: ctx.logger })
+  const sync = buildSync(ctx, readConfig)
 
   registerRpcChannel(ctx, {
-    dispatch: createDispatcher(buildDeps(ctx, readConfig, manager)),
+    dispatch: createDispatcher(buildDeps(ctx, readConfig, manager, sync)),
     warn: (text) => ctx.logger?.warn?.(`${NAME}: ${text}`),
+  })
+
+  // 配置经官方 configForms 写入 volatile 字段后，磁盘投影必须立即跟随：
+  // profile 文件是 codexpro 的输入，不跟随就会出现「设置页显示已改、实际仍按旧值跑」。
+  // 挂载期不触发（首次投影由 start 端点负责），失败只告警：设置写入本身已成功，
+  // 回滚它会让用户在设置页看到与自己操作相反的结果。
+  ctx.on('loader/volatile-update', () => {
+    void sync.syncFromConfig().catch((error) => {
+      ctx.logger?.warn?.(`${NAME}: 配置已写入，但 profile 同步失败：${messageOf(error)}`)
+    })
   })
 
   // 进程清理挂在本 fiber 的 dispose 路径：插件卸载与 DSH 退出都会走到这里。
@@ -49,33 +59,54 @@ function apply(ctx, config = {}) {
 }
 
 /**
+ * 组装 profile 同步器（端点的读候选、同步与配置变更监听共用同一份）。
+ * @param {object} ctx Host 插件上下文
+ * @param {{get: () => object}} readConfig 配置只读门面
+ * @returns {object} profile-sync 同步器
+ */
+function buildSync(ctx, readConfig) {
+  return createProfileSync({
+    dshHome: () => String(ctx.dshHomePath()),
+    snapshot: () => readConfig.get(),
+    listWorkspaces: () => /** @type {any} */ (ctx).workspaceRegistry
+      .list()
+      .map((workspace) => ({ path: workspace.path, title: workspace.title })),
+  })
+}
+
+/**
  * 组装端点编排所需的依赖面。
  * @param {object} ctx Host 插件上下文
  * @param {{get: () => object}} readConfig 配置只读门面
  * @param {ProcessManager} manager 进程管理器
+ * @param {object} sync profile-sync 同步器
  * @returns {object} endpoints.createDispatcher 的依赖面
  */
-function buildDeps(ctx, readConfig, manager) {
+function buildDeps(ctx, readConfig, manager, sync) {
   const snapshot = () => readConfig.get()
-  const sync = createProfileSync({ dshHome: () => String(ctx.dshHomePath()), snapshot })
 
   return {
     snapshot,
     manager,
     resolvePaths: sync.resolvePaths,
     ensureAnchor: sync.ensureAnchor,
-    syncProfile: sync.sync,
+    readCandidates: sync.candidates,
+    syncFromConfig: sync.syncFromConfig,
     ensureToken: () => ensureToken(ctx, snapshot),
-    listWorkspaces: () => /** @type {any} */ (ctx).workspaceRegistry
-      .list()
-      .map((workspace) => ({ path: workspace.path, title: workspace.title })),
-    isDirectory,
-    updateConfig: (patch) => ctx.settings.update(NAME, patch),
     readHealth,
     resolveEntry,
     buildArgs,
     warnIfUnsupportedVersion: (entry) => warnIfUnsupportedVersion(entry, ctx.logger),
   }
+}
+
+/**
+ * 从任意值提取可读消息。
+ * @param {unknown} error 错误值
+ * @returns {string} 可读消息
+ */
+function messageOf(error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -91,21 +122,6 @@ async function ensureToken(ctx, snapshot) {
   const token = randomBytes(TOKEN_BYTES).toString('hex')
   await ctx.settings.update(NAME, { httpToken: token })
   return token
-}
-
-/**
- * 判断路径是否为目录。
- * @param {string} target 绝对路径
- * @returns {Promise<boolean>} 是目录时为 true
- */
-async function isDirectory(target) {
-  try {
-    return (await stat(target)).isDirectory()
-  } catch {
-    // 不存在与无权限都视为不可用：不区分原因，以免把权限问题误判为存在，
-    // 从而写入一个 codexpro 无法启动的授权根。
-    return false
-  }
 }
 
 /**

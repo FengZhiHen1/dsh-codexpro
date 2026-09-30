@@ -1,17 +1,18 @@
-// catalog — 授权候选集与授权集的纯变换：DSH 工作区列表 → 候选视图 → profile 授权目录。
+// catalog — 授权候选集的纯变换：DSH 工作区列表 → 候选视图 → profile 授权目录。
 //
 // 边界：不做 IO 与 realpath（工作区路径已由 DSH 归一；目录存在性由 adapter 探测后传入）。
-// 单向语义：授权意图只来自本插件的配置；不读回 codexpro 侧的手工改动（DSR-006）。
-// 参考：technical-details/配置与profile投影.md §四；DSR-006。
+// 授权意图的唯一真相是插件 Config 的 `authorized` 字段（经官方 configForms 读写），
+// 本模块只做投影与收敛。单向语义：不读回 codexpro 侧的手工改动（DSR-006）。
+// 参考：technical-details/配置与profile投影.md §四；technical-details/RPC通道与设置页.md §六；DSR-006。
 
 /**
- * 把 DSH 工作区列表变换为候选视图，供设置页逐项勾选。
+ * 把 DSH 工作区列表投影为授权候选视图，供设置页逐项勾选。
+ * 不含授权态：授权态来自 Config 快照（客户端草稿或 Host 当前值），本函数只给候选集，
+ * 避免同一事实出现两个来源。
  * @param {Array<{path: string, title?: string}>} workspaces DSH 注册表的工作区列表
- * @param {Record<string, boolean>} authorized 授权映射（键为目录路径）
- * @returns {Array<{path: string, title: string, authorized: boolean}>} 候选视图，保持注册表顺序
+ * @returns {Array<{path: string, title: string}>} 候选视图，保持注册表顺序
  */
-export function buildCatalog(workspaces, authorized) {
-  const map = isPlainObject(authorized) ? authorized : {}
+export function buildCatalog(workspaces) {
   const list = Array.isArray(workspaces) ? workspaces : []
   return list
     .filter((workspace) => isPlainObject(workspace) && typeof workspace.path === 'string' && workspace.path !== '')
@@ -20,14 +21,26 @@ export function buildCatalog(workspaces, authorized) {
       title: typeof workspace.title === 'string' && workspace.title !== ''
         ? workspace.title
         : lastSegment(workspace.path),
-      authorized: map[workspace.path] === true,
     }))
+}
+
+/**
+ * 判断某候选路径是否被授权。
+ * 只认显式 true：映射缺失、值非布尔、路径不在候选集内都视为未授权。
+ * 这使 C-03（授权候选只来自工作区注册表）在读取侧机械成立——即使 Config 的
+ * `authorized` 被手工塞入注册表外的键，也不会进入 profile 的授权根。
+ * @param {unknown} authorized Config 的 authorized 字段
+ * @param {string} path 候选路径
+ * @returns {boolean} 已授权时为 true
+ */
+export function authorizationOf(authorized, path) {
+  return isPlainObject(authorized) && authorized[path] === true
 }
 
 /**
  * 由候选集与存在性探测结果推导本次要写入 profile 的授权目录。
  * 不存在的目录必须剔除：codexpro 对不存在的授权根会直接拒绝启动（其 toRealDir 抛错）。
- * @param {Array<{path: string, exists: boolean}>} candidates 候选集（含存在性标记）
+ * @param {Array<{path: string, exists: boolean}>} candidates 候选集（含存在性与授权态）
  * @returns {{roots: string[], skipped: Array<{path: string, reason: string}>}}
  *   roots 为待写目录；skipped 为被剔除项及原因
  */
@@ -45,29 +58,6 @@ export function resolveGrantedRoots(candidates) {
     roots.push(item.path)
   }
   return { roots, skipped }
-}
-
-/**
- * 把设置页提交的授权映射收敛为仅含合法键的映射。
- * 只接受「候选集里出现过的工作区路径」：这使 C-03（授权候选只来自工作区注册表）
- * 得到机械保证，而不是靠调用方自觉。
- * @param {unknown} submitted 设置页提交的映射
- * @param {Array<{path: string}>} candidates 候选集
- * @returns {Record<string, boolean>} 仅含候选路径的布尔映射
- */
-export function normalizeAuthorization(submitted, candidates) {
-  const allowed = new Set(
-    (Array.isArray(candidates) ? candidates : [])
-      .filter((item) => isPlainObject(item) && typeof item.path === 'string')
-      .map((item) => item.path),
-  )
-  const result = {}
-  if (!isPlainObject(submitted)) return result
-  for (const [key, value] of Object.entries(submitted)) {
-    if (!allowed.has(key)) continue
-    result[key] = value === true
-  }
-  return result
 }
 
 /**

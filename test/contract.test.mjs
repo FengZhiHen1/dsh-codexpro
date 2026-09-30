@@ -1,4 +1,7 @@
 // core 单测：RPC 信封与载荷契约。畸形输入必须被显式拒绝，不落未定义分支。
+//
+// 端点词表只含进程动作：配置读写（授权集与参数）已改走官方 configForms，
+// 故 setAuthorization / configure 及其载荷解析器不在此列。
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -9,8 +12,6 @@ import {
   fail,
   isValidEndpoint,
   ok,
-  parseAuthorizationPayload,
-  parseConfigurePayload,
   parseEmptyPayload,
   parseEnvelope,
 } from '../src/core/contract.js'
@@ -49,30 +50,18 @@ test('envelopeOf / ok / fail 产出平台信封形状', () => {
   assert.equal(failure.error.message, '无此项')
 })
 
+test('端点词表只含进程动作（配置读写已归官方 configForms）', () => {
+  assert.deepEqual([...ENDPOINTS], ['catalog', 'status', 'start', 'stop'])
+  // 这两个端点若复活，说明配置又走回了自建通道——本测试即为该回归的闸门。
+  assert.ok(!ENDPOINTS.includes('setAuthorization'), 'setAuthorization 不应再是端点')
+  assert.ok(!ENDPOINTS.includes('configure'), 'configure 不应再是端点')
+})
+
 test('isValidEndpoint 只认词表内的端点', () => {
   for (const endpoint of ENDPOINTS) assert.ok(isValidEndpoint(endpoint), `${endpoint} 应在词表内`)
-  for (const bad of ['', 'nope', '../evil', 'status/../x', null, undefined]) {
+  for (const bad of ['', 'nope', '../evil', 'status/../x', null, undefined, 'configure', 'setAuthorization']) {
     assert.equal(isValidEndpoint(bad), false, `${String(bad)} 应被拒`)
   }
-})
-
-test('parseAuthorizationPayload 接受布尔映射', () => {
-  const result = parseAuthorizationPayload({ authorized: { 'E:\\a': true, 'E:\\b': false } })
-  assert.deepEqual(result, { 'E:\\a': true, 'E:\\b': false })
-})
-
-test('parseAuthorizationPayload 拒绝非布尔值与缺失字段', () => {
-  assert.throws(() => parseAuthorizationPayload({ authorized: { 'E:\\a': 'yes' } }), ContractError)
-  assert.throws(() => parseAuthorizationPayload({ authorized: null }), ContractError)
-  assert.throws(() => parseAuthorizationPayload({}), ContractError)
-  assert.throws(() => parseAuthorizationPayload(null), ContractError)
-})
-
-test('parseConfigurePayload 只收出现过的字段且要求字符串', () => {
-  const result = parseConfigurePayload({ tunnelMode: 'ngrok', port: '9000' })
-  assert.deepEqual(result, { tunnelMode: 'ngrok', port: '9000' })
-  assert.deepEqual(parseConfigurePayload({}), {})
-  assert.throws(() => parseConfigurePayload({ port: 9000 }), ContractError)
 })
 
 test('parseEmptyPayload 接受空对象与 undefined，拒绝非对象', () => {
@@ -85,10 +74,10 @@ test('parseEmptyPayload 接受空对象与 undefined，拒绝非对象', () => {
 
 test('ContractError 带字段路径，便于定位失配处', () => {
   try {
-    parseAuthorizationPayload({ authorized: { 'E:\\a': 1 } })
+    parseEmptyPayload('x')
     assert.fail('应抛出')
   } catch (error) {
     assert.ok(error instanceof ContractError)
-    assert.ok(error.path.includes('E:\\a'), `路径应指向失配字段，实际 ${error.path}`)
+    assert.equal(error.path, 'payload')
   }
 })

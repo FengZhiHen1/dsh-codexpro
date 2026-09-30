@@ -1,20 +1,20 @@
-// t07-missing-codexpro.test.mjs — 实测：codexpro 未安装时插件的完整行为。
+// missing-codexpro.test.mjs — 实测：codexpro 未安装时插件的完整行为。
 //
 // 验证三件事：
-//   1. 打开设置页（catalog/status）时是否就已暴露「未安装」；
+//   1. 打开配置页（catalog/status）时是否就已暴露「未安装」；
 //   2. 点击启动时的错误是否可行动（含修复命令）；
-//   3. 未安装是否影响配置投影（授权勾选、参数保存）。
+//   3. 未安装是否影响配置投影（授权与参数仍可写入 profile）。
 // 手法：把 resolveEntry 的解析基准指向一个空目录，模拟「全局未安装」。
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import Schema from '@deepseek-ai/schemastery'
 import { resolveEntry } from '../src/adapter/process.js'
 import plugin from '../src/adapter/index.js'
 import { Config } from '../src/adapter/settings.js'
-import Schema from '@deepseek-ai/schemastery'
 import { profilePath } from '../src/core/profile.js'
 
 /**
@@ -27,27 +27,51 @@ async function makeRoot() {
 }
 
 /**
+ * 造一份可热更配置（与生产同形：每个 volatile 字段是 {get} 引用）。
+ * @param {object} [overrides] 初始覆盖项
+ * @returns {{config: object, patch: (partial: object) => void}} 配置与写入面
+ */
+function mutableConfig(overrides = {}) {
+  const [resolved] = Schema.resolve(overrides, Config, { path: [] })
+  const boxes = new Map()
+  const config = {}
+  for (const [key, value] of Object.entries(resolved)) {
+    const isRef = value !== null && typeof value === 'object' && typeof value.get === 'function'
+    if (!isRef) { config[key] = value; continue }
+    const box = { value: value.get() }
+    boxes.set(key, box)
+    config[key] = { get: () => box.value }
+  }
+  /** 直接把 patch 提交进 volatile 引用（原地）。 */
+  const patch = (partial) => {
+    for (const [key, value] of Object.entries(partial)) {
+      const box = boxes.get(key)
+      if (box !== undefined) box.value = value
+    }
+  }
+  return { config, patch }
+}
+
+/**
  * 组装受控 ctx；spawn 会抛错以模拟无可用 codexpro。
  * @param {string} dshHome 实例 HOME
  * @param {Array<object>} workspaces 工作区
+ * @param {object} mutable mutableConfig 的产物
  * @returns {object} ctx 与记录
  */
-function makeCtx(dshHome, workspaces) {
+function makeCtx(dshHome, workspaces, mutable) {
   const warnings = []
   const routes = []
   const configWrites = []
-  let currentConfig = null
   const ctx = {
     logger: { warn: (t) => warnings.push(t), info: () => {} },
     dshHomePath: () => dshHome,
     workspaceRegistry: { list: () => workspaces },
     subprocess: { spawn: () => { throw new Error('不应到达 spawn：未安装时应在解析阶段失败') } },
     settings: {
-      update: async (ns, patch) => {
-        configWrites.push({ ns, patch })
-        for (const [k, v] of Object.entries(patch)) {
-          if (currentConfig && k in currentConfig) currentConfig[k] = { get: () => v }
-        }
+      update: async (ns, value) => {
+        configWrites.push({ ns, patch: value })
+        mutable.patch(value)
       },
     },
     connection: { fetch: { register: (r) => { routes.push(r); return () => {} } } },
@@ -55,11 +79,21 @@ function makeCtx(dshHome, workspaces) {
     on: () => () => {},
     fiber: {},
   }
-  return {
-    ctx, warnings, routes, configWrites,
-    setConfig: (v) => { currentConfig = v },
-    getConfig: () => currentConfig,
-  }
+  return { ctx, warnings, routes, configWrites }
+}
+
+/**
+ * 装配一个已 apply 的实例。
+ * @param {string} dshHome 实例 HOME
+ * @param {Array<object>} [workspaces] 工作区
+ * @param {object} [overrides] 配置覆盖项
+ * @returns {object} harness 与配置写入面
+ */
+function setup(dshHome, workspaces = [], overrides = {}) {
+  const cfg = mutableConfig(overrides)
+  const harness = makeCtx(dshHome, workspaces, cfg)
+  plugin.apply(harness.ctx, cfg.config)
+  return harness
 }
 
 /**
@@ -77,6 +111,17 @@ async function invoke(routes, endpoint, payload) {
     body: JSON.stringify({ type: 'client-request', rpcId: 'r', method: `codexpro/${endpoint}`, payload }),
   }))
   return (await response.json()).result
+}
+
+/**
+ * 读回磁盘上的 profile。
+ * @param {string} dshHome 实例 HOME
+ * @returns {Promise<object>} 解析后的 profile
+ */
+async function readProfile(dshHome) {
+  const home = path.join(dshHome, 'codexpro')
+  const anchor = await realpath(path.join(dshHome, 'codexpro', 'anchor'))
+  return JSON.parse(await readFile(profilePath(home, anchor), 'utf8'))
 }
 
 test('T-07: 未安装时 resolveEntry 给出含修复命令的可行动错误', async () => {
@@ -98,18 +143,14 @@ test('T-07: 未安装时 resolveEntry 给出含修复命令的可行动错误', 
   }
 })
 
-test('T-07: 未安装时打开设置页不会崩（catalog 正常返回）', async () => {
+test('T-07: 未安装时打开配置页不会崩（catalog 正常返回）', async () => {
   const { root, cleanup } = await makeRoot()
   try {
     const project = path.join(root, 'proj')
     await mkdir(project, { recursive: true })
-    const harness = makeCtx(path.join(root, 'home'), [{ path: project, title: '项目' }])
-    const [config] = Schema.resolve({}, Config, { path: [] })
-    harness.setConfig(config)
-    plugin.apply(harness.ctx, harness.getConfig())
-
+    const harness = setup(path.join(root, 'home'), [{ path: project, title: '项目' }])
     const result = await invoke(harness.routes, 'catalog', {})
-    assert.equal(result.ok, true, '设置页读取不应因未安装而失败')
+    assert.equal(result.ok, true, '配置页读取不应因未安装而失败')
   } finally {
     await cleanup()
   }
@@ -118,11 +159,7 @@ test('T-07: 未安装时打开设置页不会崩（catalog 正常返回）', asy
 test('T-07: 未安装时 status 不报错（面板可打开）', async () => {
   const { root, cleanup } = await makeRoot()
   try {
-    const harness = makeCtx(path.join(root, 'home'), [])
-    const [config] = Schema.resolve({}, Config, { path: [] })
-    harness.setConfig(config)
-    plugin.apply(harness.ctx, harness.getConfig())
-
+    const harness = setup(path.join(root, 'home'))
     const result = await invoke(harness.routes, 'status', {})
     assert.equal(result.ok, true)
     assert.equal(result.value.state, 'idle')
@@ -131,42 +168,33 @@ test('T-07: 未安装时 status 不报错（面板可打开）', async () => {
   }
 })
 
-test('T-07: 未安装不影响配置投影（授权仍可写入）', async () => {
+test('T-07: 未安装不影响配置投影（授权仍写入 profile）', async () => {
   const { root, cleanup } = await makeRoot()
   try {
-    const { realpath } = await import('node:fs/promises')
     const project = path.join(root, 'proj')
     await mkdir(project, { recursive: true })
     const realProject = await realpath(project)
     const dshHome = path.join(root, 'home')
-    const harness = makeCtx(dshHome, [{ path: realProject, title: '项目' }])
-    const [config] = Schema.resolve({}, Config, { path: [] })
-    harness.setConfig(config)
-    plugin.apply(harness.ctx, harness.getConfig())
-
-    const result = await invoke(harness.routes, 'setAuthorization', { authorized: { [realProject]: true } })
-    assert.equal(result.ok, true, '配置投影与是否安装 codexpro 无关')
-
-    const anchor = await realpath(path.join(dshHome, 'codexpro', 'anchor'))
-    const parsed = JSON.parse(await readFile(profilePath(path.join(dshHome, 'codexpro'), anchor), 'utf8'))
-    assert.deepEqual(parsed.allowedRoots, [realProject])
+    // 授权意图来自配置（官方 configForms 写入），与是否安装 codexpro 无关。
+    const harness = setup(dshHome, [{ path: realProject, title: '项目' }], {
+      authorized: { [realProject]: true },
+    })
+    await invoke(harness.routes, 'start', {})
+    const parsed = await readProfile(dshHome)
+    assert.deepEqual(parsed.allowedRoots, [realProject], '配置投影与是否安装 codexpro 无关')
   } finally {
     await cleanup()
   }
 })
 
-test('T-07: 未安装时 start 返回 SPAWN_FAILED 且消息可行动', async () => {
+test('T-07: 未安装时 start 返回失败且消息可读、不外抛', async () => {
   const { root, cleanup } = await makeRoot()
   try {
-    const harness = makeCtx(path.join(root, 'home'), [])
-    const [config] = Schema.resolve({}, Config, { path: [] })
-    harness.setConfig(config)
-    plugin.apply(harness.ctx, harness.getConfig())
-
+    const harness = setup(path.join(root, 'home'))
     const result = await invoke(harness.routes, 'start', {})
     assert.equal(result.ok, false)
-    // 注意：真实的 resolveEntry 会解析到本机已安装的 codexpro，故此处若本机已装，
-    // 失败点会落在 spawn 替身上。两种情况都必须给可读错误、且不外抛。
+    // 本机已装 codexpro 时失败点落在 spawn 替身；未装时落在 resolveEntry。
+    // 两种情况都必须给可读错误、且不外抛（抛出会被平台记为传输失败，丢失这里的信息）。
     assert.ok(typeof result.error.code === 'string' && result.error.code !== '')
     assert.ok(typeof result.error.message === 'string' && result.error.message.length > 0)
   } finally {
@@ -178,18 +206,12 @@ test('T-07: start 失败后 token 与 profile 仍已就绪（配置投影先于�
   const { root, cleanup } = await makeRoot()
   try {
     const dshHome = path.join(root, 'home')
-    const harness = makeCtx(dshHome, [])
-    const [config] = Schema.resolve({}, Config, { path: [] })
-    harness.setConfig(config)
-    plugin.apply(harness.ctx, harness.getConfig())
-
+    const harness = setup(dshHome)
     await invoke(harness.routes, 'start', {})
     // token 生成发生在解析可执行之前，故启动失败后仍已持久化。
     const tokenWrites = harness.configWrites.filter((w) => 'httpToken' in w.patch)
     assert.equal(tokenWrites.length, 1, 'token 应先于进程启动生成，使失败后不必重来')
-    const { realpath } = await import('node:fs/promises')
-    const anchor = await realpath(path.join(dshHome, 'codexpro', 'anchor'))
-    const parsed = JSON.parse(await readFile(profilePath(path.join(dshHome, 'codexpro'), anchor), 'utf8'))
+    const parsed = await readProfile(dshHome)
     assert.equal(parsed.token, tokenWrites[0].patch.httpToken, 'token 应已写入 profile')
   } finally {
     await cleanup()

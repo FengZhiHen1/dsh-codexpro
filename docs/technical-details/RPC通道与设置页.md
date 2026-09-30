@@ -28,16 +28,24 @@
 
 ## 二、端点清单
 
+> **通道分工（2026-09-30 重构）**：**配置读写不走本通道**——授权集与五个参数字段是插件行 Cordis `Config` 的 volatile 字段，读写一律经官方 `configForms`（`ConfigForm.getSnapshot/subscribe/mutate`），草稿暂存、revision 围栏、保存后回读、离开页面丢弃全部归官方 `SettingsFormModel`。
+> 本通道只保留**进程动作**与**Host 侧探测**：启停是瞬时动作（无可序列化的配置值、无「保存」语义，revision 围栏管不了「进程是否真的起来了」），候选工作区的目录存在性探测需要 Host 文件系统访问。
+
 | 端点 | 用途 | 请求载荷 | 响应 `value` |
 |------|------|----------|--------------|
-| `catalog` | 取候选工作区与当前授权状态 | `{}` | `{ workspaces: [{ path, title, exists, authorized }], dataHome, profilePath, anchorDir }` |
-| `setAuthorization` | 设定授权集 | `{ authorized: <Record<string, boolean>> }` | `{ written: boolean, allowedRoots: string[], skipped: [{ path, reason }] }` |
-| `status` | 进程状态与展示信息 | `{}` | `{ state, port, url, token?, health, lastError }` |
-| `start` | 启动进程 | `{}` | `{ state }` |
+| `catalog` | 取候选工作区、目录存在性、当前授权态与参数值 | `{}` | `{ workspaces: [{ path, title, exists, authorized }], dataHome, anchorDir, tunnelMode, tunnelHostname, port, bashMode, writeMode }` |
+| `status` | 进程状态与展示信息 | `{}` | `{ state, port, tunnel, token?, url, health, lastError, anchorDir }` |
+| `start` | 启动进程 | `{}` | `{ state, written, allowedRoots }` |
 | `stop` | 停止进程 | `{}` | `{ state }` |
-| `configure` | 设定 tunnel / port / 模式 | `{ tunnelMode?, tunnelHostname?, port?, bashMode?, writeMode? }` | `{ config }` |
 
-**端点与配置面的分工**：`configure` 与 `setAuthorization` 写入的是同一份 Cordis `Config`（经 `ctx.settings.update`）。保留 `configure` 而非让 Client 直接调 `configForms.mutate` 的原因：这五个字段需要**跨字段校验**（具名 tunnel 必须带 hostname、port 范围），且 port/tunnel 变更需要重建 profile；集中在一处 Host 逻辑比在 Client 侧拼 `mutate` 操作序列更少分支。
+**`catalog` 的授权态与参数值是只读投影**：它们让客户端在官方表单快照尚未就绪时仍能渲染出可读内容；**写入一律以 `configForms` 为准**，本端点不接收任何写请求。
+
+### 配置变更如何投影到磁盘
+
+配置经官方 `configForms` 写入 volatile 字段后，平台派发 **`loader/volatile-update`**（instance-local）到本行；Host 侧监听该事件并调用 `syncFromConfig()` 重新生成 profile 文件。这是「设置页显示已改」与「codexpro 实际按新值跑」之间的唯一连接点——不跟随就会出现二者不一致。
+
+- 挂载期**不触发**投影：首次投影由 `start` 端点负责，避免无谓 IO 与半成品文件。
+- 投影失败**只告警不抛出**：设置写入本身已成功，回滚它会让用户在设置页看到与自己操作相反的结果。
 
 ### `status.token` 的暴露边界
 
@@ -128,23 +136,40 @@ const result = await ctx.connection.rpc.call('/api', 'codexpro/status', {}, sign
 
 | view | 内容 |
 |------|------|
-| `summary` | 一行状态摘要：进程状态 + 已授权工作区数 |
-| `page` | 完整配置页，三个区（见下） |
+| `summary` | 一行说明（该行没有包描述时用作行页面的说明文字） |
+| `page` | 配置页主体：进程区块 + 官方配置表单 |
 
-### 页面三区
+### 页面构成
 
-1. **进程控制**：状态徽标（`StateDot`）、启动/停止按钮、Server URL 展示与复制、健康信息。
-2. **授权工作区**：候选列表，每项 `Checkbox` + 工作区标题 + 路径；目录不存在的项标注不可用且禁用；底部保存按钮。
-3. **参数**：tunnel 方式（`SegmentedControl` 或 `Switch` 组）、hostname 输入（仅具名 tunnel 时启用）、port 输入、bash 模式与写入模式选择。
+**官方规范**：页面的行标题、图标、面包屑由 Plugins 页自绘（`PluginManagerPage.tsx:462-499`），配置页这一侧**不自带卡片壳、不自带标题、不自带页签栏**——官方 `SettingsForm` 自带保存栏（参考实现 `ui-settings-shell/src/client/ShellCard.tsx`，全文 55 行）。
+
+页面自上而下两部分：
+
+1. **进程区块**（自建 `<section>`）：状态徽标、启动/停止/刷新状态按钮、Server URL 展示、失败原因。这是页内唯一不走官方表单的部分——启停是瞬时动作，没有可序列化的配置值，也没有「保存」语义。
+2. **配置表单**（官方 `SettingsForm` + `SettingsFormModel`）：按顺序为 tunnel 方式、公网 hostname（仅具名 tunnel 时出现）、本地端口、bash 模式、写入模式、授权工作区。
+
+### 字段控件
+
+官方字段原语只有文本（`SettingsValueField`）与 write-only 密钥（`SettingsSecretField`），**没有 select、没有布尔控件**（`knowledge/client/15` §4）。故：
+
+| 字段 | 控件 | 草稿机制 |
+|------|------|----------|
+| tunnelMode / bashMode / writeMode | 自绘 `<select>` | 官方 `edit(field, text)` |
+| tunnelHostname / port | 官方同构的 `<input>`（自绘以复现官方几何） | 官方 `edit(field, text)` |
+| authorized | **自绘 `Checkbox` 列表** | 点击把整份映射序列化后 `edit('authorized', json)` |
+
+关键点：自绘控件**只报告用户意图**，不自行写盘；草稿暂存与写入仍走官方模型。这与 `dsh-guardrails` 处理叶子集复选框的做法一致。
 
 ### UI 原语与 token
 
-全部原语来自 `@deepseek-ai/dsh-client-ui-primitives`（已确认本代导出含 `Button`、`Checkbox`、`StateDot`、`Tag`、`Switch`、`SegmentedControl`、`SettingsForm`、`SettingsFormModel`）。
+原语来自 `@deepseek-ai/dsh-client-ui-primitives`（本代导出含 `SettingsForm`、`SettingsFormModel`、`SettingsValueField`、`Checkbox`、`Tag`、`Button`）。
 
 - 表单骨架与「暂存 → 保存 → 丢弃」语义由官方 `SettingsForm` / `SettingsFormModel` 承担，**不自写草稿状态机**。
 - 颜色与几何只用宿主 token：`--dsw-alias-*`、`--dsw-radius-*`（六档）、`--dsw-elevation-*`。禁止 off-scale 字面量。
-- `Button` 默认 `variant` 为 `ghost`；主动作须显式传 `primary`。
-- 图标名称为 size-neutral 形式（如 `IconSettingsOutlineMedium`）。取用方式须能容忍图标缺失（动态取用 + 类型判定 + 文本回退），避免整卡渲染失败。
+- 中性实线边框一律 `0.5px`（官方规范）；半径走 token，不用离格字面量。
+- 全圆胶囊（状态徽标）必须成对声明 `border-radius: 999px` + `corner-shape: round`：宿主 `corner-shape.css` 用通配选择器把所有圆角统一为 `superellipse(1.5)`，缺此声明会把胶囊两端压成方角（官方 `Pill`/`Tag` 同样成对声明）。
+- `Checkbox` 禁用时必须给出可见禁用态（`opacity` + `cursor`），不得只设 `disabled` 属性而不写视觉态。
+- 页签形态（若将来需要）应使用官方 `SegmentedTabs` 或对齐 `ui-settings-plugins` 的下划线写法，不自绘。
 
 ## 六、失败语义
 

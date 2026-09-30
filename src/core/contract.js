@@ -43,23 +43,17 @@ function needObject(value, path) {
 }
 
 /**
- * 断言值是字符串。
- * @param {unknown} value 待检值
- * @param {string} path 字段路径
- * @returns {void}
+ * 端点词表：与 Host 注册的路由集合同源。
+ *
+ * 只有「进程动作」与「Host 侧探测」走本通道：配置读写（含授权集与参数）已改为
+ * 官方 `configForms`（Config 的 volatile 字段 + profile patch 持久化），
+ * 故 `setAuthorization` / `configure` 不再是端点。
  */
-function needString(value, path) {
-  need(typeof value === 'string', path, 'string', value)
-}
-
-/** 端点词表：与 Host 注册的路由集合同源。 */
 export const ENDPOINTS = Object.freeze([
   'catalog',
-  'setAuthorization',
   'status',
   'start',
   'stop',
-  'configure',
 ])
 
 /** RPC 命名空间段。 */
@@ -134,46 +128,6 @@ export const ERROR_CODES = Object.freeze({
   unsupported: 'UNSUPPORTED',
   internal: 'INTERNAL',
 })
-
-/**
- * 校验 `setAuthorization` 的载荷。
- * 形状不符时由内部断言抛 ContractError（错误带失配字段路径）。
- * @param {unknown} payload 入站载荷
- * @returns {Record<string, boolean>} 归一后的映射
- */
-export function parseAuthorizationPayload(payload) {
-  needObject(payload, 'payload')
-  const { authorized } = /** @type {Record<string, unknown>} */ (payload)
-  needObject(authorized, 'payload.authorized')
-  /** @type {Record<string, boolean>} */
-  const result = {}
-  for (const [key, value] of Object.entries(authorized)) {
-    need(typeof value === 'boolean', `payload.authorized.${key}`, 'boolean', value)
-    result[key] = value
-  }
-  return result
-}
-
-/**
- * 校验 `configure` 的载荷：字段可选，出现则须为字符串。
- * 形状不符时由内部断言抛 ContractError（错误带失配字段路径）。
- * @param {unknown} payload 入站载荷
- * @returns {Record<string, string>} 仅含出现过的字段
- */
-export function parseConfigurePayload(payload) {
-  needObject(payload, 'payload')
-  const source = /** @type {Record<string, unknown>} */ (payload)
-  const fields = ['tunnelMode', 'tunnelHostname', 'port', 'bashMode', 'writeMode']
-  /** @type {Record<string, string>} */
-  const result = {}
-  for (const field of fields) {
-    const value = source[field]
-    if (value === undefined) continue
-    needString(value, `payload.${field}`)
-    result[field] = value
-  }
-  return result
-}
 
 /**
  * 校验 `catalog` / `status` / `start` / `stop` 的空载荷。

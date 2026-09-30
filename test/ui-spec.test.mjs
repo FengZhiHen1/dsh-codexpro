@@ -1,10 +1,11 @@
-// ui-spec.test.mjs — UI 规格测试：把「与官方设置节同构」这一声称变成可验证的断言。
+// ui-spec.test.mjs — UI 规格测试：把「与官方设置页同构」这一声称变成可验证的断言。
 //
-// 覆盖三件只有运行期才能确认的事：
-//   1. 页签栏的 ARIA 配对（tablist / tab / tabpanel、aria-selected / controls / labelledby）；
-//   2. 键盘映射（ArrowLeft / ArrowRight / Home / End + 焦点跟随）；
-//   3. 面板保持挂载（切走用 hidden 隐藏而非卸载，草稿不丢）。
+// 覆盖只有运行期才能确认的事：
+//   1. 配置页形态（官方规范：不自带卡片壳/页签栏，保存栏归官方 SettingsForm）；
+//   2. 授权工作区复选框：点击只暂存草稿（把整份映射序列化后 edit 一次），不发请求；
+//   3. `view: 'summary'` 只给一行说明，不渲染表单与进程区块。
 // 手法：esbuild 打包 card.jsx 与 React 替身，在裸 node 中调用组件函数并检查元素树。
+// 参考：knowledge/client/15 §4；docs/cookbook/adding-a-settings-card.md。
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,11 +20,58 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const stub = path.join(here, 'helpers', 'react-stub.mjs')
 
 /**
+ * esbuild 插件：把平台包替换为轻量替身，避免 node 侧解析其 CSS 依赖。
+ * 只需满足本插件用到的原语（SettingsForm / Checkbox / Tag），其余导出返回空函数以防误用。
+ * @returns {object} esbuild 插件
+ */
+function stubPlatformPlugin() {
+  return {
+    name: 'stub-platform',
+    setup(build) {
+      build.onResolve({ filter: /^@deepseek-ai\// }, (args) => ({ path: args.path, namespace: 'platform-stub' }))
+      build.onLoad({ filter: /.*/, namespace: 'platform-stub' }, () => ({
+        contents: `
+function passthrough(name) {
+  // 必须保留 props.children：SettingsForm 的子节点就是被测的字段控件，
+  // 丢掉它们会让断言只看到空壳（曾把「找不到复选框」误判为产品缺陷）。
+  return function Stub(props) {
+    const children = props && props.children !== undefined ? props.children : []
+    return { type: name, props: { ...(props ?? {}), children } }
+  }
+}
+const SettingsForm = passthrough('SettingsForm')
+const SettingsValueField = passthrough('SettingsValueField')
+const SettingsSecretField = passthrough('SettingsSecretField')
+const SettingsFormModel = class StubFormModel {
+  constructor(scope, specs) { this.scope = scope; this.specs = specs }
+  bind(project) { this.project = project; return { get: () => project() } }
+  shell() { return { available: true, writable: true, dirty: false, invalid: false, saving: false, failed: false } }
+  field(field) { const spec = this.specs.find((s) => s.field === field); return { text: spec ? spec.format(undefined) : '', overridden: false, invalid: false } }
+  actions() { return { edit: () => {}, resetField: () => {}, save: () => {}, discard: () => {} } }
+  dispose() {}
+}
+function settingsTextField(field) {
+  return { field, format: (v) => (typeof v === 'string' ? v : ''), parse: (t) => (String(t).trim() === '' ? { kind: 'clear' } : { kind: 'set', value: String(t).trim() }) }
+}
+const Checkbox = passthrough('Checkbox')
+const Tag = passthrough('Tag')
+const Button = passthrough('Button')
+const Pill = passthrough('Pill')
+export { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill }
+export default { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill }
+`,
+        loader: 'js',
+      }))
+    },
+  }
+}
+
+/**
  * 打包入口与其 React 替身。
  *
  * 平台包必须外化（与生产 build-client.mjs 的 external 一致）：它们是浏览器侧的
  * shell-seeded 模块，且其实现 import CSS Module——内联进 node 侧的打包树会因
- * 无法处理 .module.css 而失败。外化后由替身 require 提供，与真实 loader 的模块表同形。
+ * 无法处理 .module.css 而失败。外化后由替身提供，与真实 loader 的模块表同形。
  * @param {string} entry 源码入口
  * @param {string} root 临时目录
  * @param {string} name 产物名
@@ -37,11 +85,8 @@ async function load(entry, root, name) {
     platform: 'node',
     write: false,
     external: ['@deepseek-ai/*'],
-    // JSX 经 jsx-runtime 编译（automatic），故两个 specifier 都要指向替身，否则
-    // 元素树来自真实 react/jsx-runtime（node 侧不可用），断言无处可查。
+    // JSX 经 jsx-runtime 编译（automatic），故两个 specifier 都要指向替身。
     alias: { react: stub, 'react/jsx-runtime': stub, 'react/jsx-dev-runtime': stub },
-    // 平台包被外化后，产物里的 require 需由 node 解析到真实包；node 侧无法加载其 CSS，
-    // 故用插件把这些 require 重定向到替身（与浏览器 loader 的模块表角色一致）。
     plugins: [stubPlatformPlugin()],
   })
   const file = path.join(root, `${name}.cjs`)
@@ -50,34 +95,18 @@ async function load(entry, root, name) {
 }
 
 /**
- * esbuild 插件：把平台包替换为轻量替身，避免 node 侧解析其 CSS 依赖。
- * 只需满足本插件用到的原语（Button / Checkbox），其余属性访问返回空函数以防误用。
- * @returns {object} esbuild 插件
+ * 取元素的文本内容。
+ *
+ * 替身的 createElement 把子节点统一收进数组（与真实 React 的 props.children 同形），
+ * 故文本比较必须展平后再比——直接 `children === '文案'` 永远不成立。
+ * @param {object} element 元素
+ * @returns {string} 文本
  */
-function stubPlatformPlugin() {
-  return {
-    name: 'stub-platform',
-    setup(build) {
-      build.onResolve({ filter: /^@deepseek-ai\// }, (args) => ({ path: args.path, namespace: 'platform-stub' }))
-      build.onLoad({ filter: /.*/, namespace: 'platform-stub' }, () => ({
-        contents: `
-function passthrough(name) {
-  return function Stub(props) {
-    return { type: name, props: { ...(props ?? {}), children: [] } }
-  }
-}
-const Button = passthrough('Button')
-const Checkbox = passthrough('Checkbox')
-const Tag = passthrough('Tag')
-const Pill = passthrough('Pill')
-const StateDot = passthrough('StateDot')
-export { Button, Checkbox, Tag, Pill, StateDot }
-export default { Button, Checkbox, Tag, Pill, StateDot }
-`,
-        loader: 'js',
-      }))
-    },
-  }
+function textOf(element) {
+  const children = element?.props?.children
+  if (typeof children === 'string') return children
+  if (Array.isArray(children)) return children.filter((child) => typeof child === 'string').join('')
+  return ''
 }
 
 /**
@@ -99,22 +128,16 @@ function findAll(node, predicate, out = []) {
 }
 
 /**
- * 渲染一个组件：先进入其 hook 作用域再调用，随后递归展开函数子组件。
- * 直接调用组件函数时不经过 createElement，故顶层也必须显式 enter，
- * 否则该组件的 hook 槽位无处可查（真实 React 由调度器保证，替身需调用方配合）。
- * @param {Function} Component 组件
- * @param {object} props 属性
- * @param {object} control React 替身控制面
- * @returns {object} 展开后的元素树
+ * 加载 form.js 的字段规格（它顶层 import 平台原语，故须经打包与外化）。
+ * @param {string} root 临时目录
+ * @returns {Promise<object>} form 模块导出
  */
-function renderComponent(Component, props, control) {
-  const tree = expand({ type: Component, props: { ...props, children: [] } }, control)
-  return tree
+async function loadForm(root) {
+  return load(path.join(here, '..', 'src', 'client', 'form.js'), root, 'form')
 }
 
 /**
  * 展开函数组件：调用其函数体并把产物接回树（供断言穿透到宿主标签）。
- * 驱动端为每个组件按「组件名 + 遍历序号」生成实例键，使 hook 槽位跨轮保留。
  * @param {object} tree 元素树
  * @param {object} control React 替身控制面
  * @returns {object} 展开后的树
@@ -140,208 +163,261 @@ function expand(tree, control) {
   return walk(tree)
 }
 
-test('页签栏具备 tablist/tab 的 ARIA 与 aria-selected', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
-  try {
-    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
-    const control = globalThis.__REACT_STUB__
-    const tree = renderComponent(card.CodexProCard, { call: async () => ({}), view: 'page' }, control)
+/** 冲刷微任务与宏任务队列，使 effect 内未返回的异步工作得以完成。 */
+function flush() {
+  return new Promise((resolve) => setImmediate(resolve))
+}
 
-    const tablists = findAll(tree, (el) => el.props?.['role'] === 'tablist')
-    assert.equal(tablists.length, 1, '必须恰好一个 tablist')
-    assert.ok(tablists[0].props['aria-label'], 'tablist 必须有 aria-label')
-
-    const tabs = findAll(tree, (el) => el.props?.['role'] === 'tab')
-    assert.equal(tabs.length, 3, '应渲染三个页签')
-    const selected = tabs.filter((el) => el.props['aria-selected'] === true)
-    assert.equal(selected.length, 1, '恰好一个页签处于选中态')
-    for (const tabEl of tabs) {
-      assert.ok(tabEl.props.id, '页签必须有 id')
-      assert.ok(tabEl.props['aria-controls'], '页签必须经 aria-controls 指向面板')
-      assert.ok(tabEl.props.tabIndex === 0 || tabEl.props.tabIndex === -1, 'roving tabindex：0 或 -1')
+/**
+ * 渲染一个组件并驱动其 effect，直至稳定。
+ *
+ * 必须真的执行 effect：组件的 useEffect 会发起异步读取（status/catalog），
+ * 不执行它们，断言就看不到由读取结果驱动的分支（曾把「读不到端点」误判为产品缺陷）。
+ * @param {Function} Component 组件
+ * @param {object} props 属性
+ * @param {object} control React 替身控制面
+ * @returns {Promise<object>} 稳定后的元素树
+ */
+async function renderComponent(Component, props, control) {
+  let tree = null
+  // 上界 8 轮：每轮展开一次树并跑一轮 effect，正常路径 2 轮内稳定。
+  for (let round = 0; round < 8; round += 1) {
+    control.effects = []
+    control.dirty = false
+    tree = expand({ type: Component, props: { ...props, children: [] } }, control)
+    while (control.effects.length) {
+      const effect = control.effects.shift()
+      const result = effect()
+      if (result instanceof Promise) await result
+      await flush()
     }
-    const active = selected[0]
-    assert.equal(active.props.tabIndex, 0, '只有选中项是 tab 停靠点')
-  } finally {
-    await rm(root, { recursive: true, force: true })
+    await flush()
+    if (!control.dirty) break
   }
-})
+  return tree
+}
 
-test('页签与面板经 id/aria-labelledby 双向配对', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
-  try {
-    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
-    const control = globalThis.__REACT_STUB__
-    const tree = renderComponent(card.CodexProCard, { call: async () => ({}), view: 'page' }, control)
+/** 造一份表单状态（各字段的官方状态形状）。 */
+function makeForm(overrides = {}) {
+  const base = {
+    available: true,
+    writable: true,
+    dirty: false,
+    invalid: false,
+    saving: false,
+    failed: false,
+    tunnelMode: { text: 'none', overridden: false, invalid: false },
+    tunnelHostname: { text: '', overridden: false, invalid: false },
+    port: { text: '8787', overridden: false, invalid: false },
+    bashMode: { text: 'safe', overridden: false, invalid: false },
+    writeMode: { text: 'workspace', overridden: false, invalid: false },
+    authorized: { text: '{}', overridden: false, invalid: false },
+  }
+  return { ...base, ...overrides }
+}
 
-    const tabs = findAll(tree, (el) => el.props?.['role'] === 'tab')
-    const panels = findAll(tree, (el) => el.props?.['role'] === 'tabpanel')
-    assert.ok(panels.length >= 1, '至少渲染当前页签的面板')
-
-    for (const panel of panels) {
-      assert.ok(panel.props.id, '面板必须有 id')
-      // 面板的 aria-labelledby 必须指向真实存在的页签 id。
-      const owner = tabs.find((tabEl) => tabEl.props.id === panel.props['aria-labelledby'])
-      assert.ok(owner, `面板 ${panel.props.id} 的 aria-labelledby 必须指向已渲染的页签`)
-      // 页签的 aria-controls 必须指回该面板。
-      assert.equal(owner.props['aria-controls'], panel.props.id)
+/**
+ * 渲染配置页并驱动其 effect。
+ * @param {object} card 已加载的 card 模块
+ * @param {object} control React 替身控制面
+ * @param {object} [options] 覆盖项
+ * @returns {Promise<object>} 元素树
+ */
+function renderCard(card, control, options = {}) {
+  const form = options.form ?? makeForm()
+  const calls = options.calls ?? []
+  const edits = options.edits ?? []
+  const call = async (endpoint) => {
+    calls.push(endpoint)
+    if (endpoint === 'status') return { state: 'idle', port: '8787', tunnel: 'none', token: '', url: '', lastError: '' }
+    if (endpoint === 'catalog') {
+      return {
+        workspaces: options.workspaces ?? [],
+        anchorDir: 'E:\\anchor',
+        port: '8787',
+        tunnelMode: 'none',
+        tunnelHostname: '',
+        bashMode: 'safe',
+        writeMode: 'workspace',
+      }
     }
-  } finally {
-    await rm(root, { recursive: true, force: true })
+    return {}
   }
-})
+  return renderComponent(card.CodexProCard, {
+    view: options.view ?? 'page',
+    call,
+    useCodexProForm: () => form,
+    edit: (field, text) => edits.push([field, text]),
+    resetField: () => {},
+    save: () => {},
+    discard: () => {},
+  }, control)
+}
 
-test('键盘映射与官方一致：左右循环、Home/End 跳首尾', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
-  try {
-    const parts = await load(path.join(here, '..', 'src', 'client', 'parts.jsx'), root, 'parts')
-    const control = globalThis.__REACT_STUB__
-    const seen = []
-    const tree = renderComponent(parts.TabBar, {
-      active: 'process',
-      onChange: (id) => seen.push(id),
-      label: '分区',
-      panelIdOf: (id) => `panel-${id}`,
-    }, control)
-
-    const tabs = findAll(tree, (el) => el.props?.['role'] === 'tab')
-    assert.equal(tabs.length, 3)
-
-    /**
-     * 触发某页签的键盘事件。
-     * @param {number} index 页签序号
-     * @param {string} key 按键名
-     * @returns {object} 事件对象（可查 preventDefault 是否被调用）
-     */
-    const press = (index, key) => {
-      let prevented = false
-      tabs[index].props.onKeyDown({ key, preventDefault: () => { prevented = true }, stopPropagation: () => {} })
-      return { prevented }
-    }
-
-    // 三个页签顺序为 进程 / 授权工作区 / 参数。
-    press(0, 'ArrowRight')
-    assert.equal(seen.at(-1), 'workspaces', '右移应到下一个页签')
-    seen.length = 0
-
-    press(0, 'ArrowLeft')
-    assert.equal(seen.at(-1), 'options', '左移应从首个回绕到末个')
-
-    seen.length = 0
-    press(2, 'Home')
-    assert.equal(seen.at(-1), 'process', 'Home 应跳到首个')
-
-    seen.length = 0
-    press(0, 'End')
-    assert.equal(seen.at(-1), 'options', 'End 应跳到末个')
-
-    seen.length = 0
-    const unrelated = press(0, 'Tab')
-    assert.deepEqual(seen, [], '无关按键不应切换页签')
-    assert.equal(unrelated.prevented, false, '无关按键不应吞掉默认行为')
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
-test('方向键切换时 preventDefault 被调用（避免页面滚动）', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
-  try {
-    const parts = await load(path.join(here, '..', 'src', 'client', 'parts.jsx'), root, 'parts')
-    const control = globalThis.__REACT_STUB__
-    const tree = renderComponent(parts.TabBar, {
-      active: 'process',
-      onChange: () => {},
-      label: '分区',
-      panelIdOf: (id) => `panel-${id}`,
-    }, control)
-    const tabs = findAll(tree, (el) => el.props?.['role'] === 'tab')
-    let prevented = false
-    tabs[0].props.onKeyDown({ key: 'ArrowRight', preventDefault: () => { prevented = true }, stopPropagation: () => {} })
-    assert.equal(prevented, true)
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
-test('未访问的页签面板不渲染（首屏只挂当前页签）', async () => {
+test('配置页渲染官方 SettingsForm（配置部分不自带卡片壳）', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
-    const tree = renderComponent(card.CodexProCard, { call: async () => ({}), view: 'page' }, control)
-
-    const panels = findAll(tree, (el) => el.props?.['role'] === 'tabpanel')
-    assert.equal(panels.length, 1, '首屏只应渲染当前页签的面板（官方语义：首次选中才挂载）')
-    // hidden={!selected} 对选中项求值为 false（React 语义等同不隐藏），故接受 false 或缺省。
-    assert.ok(panels[0].props.hidden === false || panels[0].props.hidden === undefined,
-      '当前页签的面板不应处于隐藏态')
+    const tree = await renderCard(card, control)
+    const forms = findAll(tree, (el) => el.type === 'SettingsForm')
+    assert.equal(forms.length, 1, '配置部分必须由官方 SettingsForm 承载')
+    // 官方规范：页面的行标题/图标/面包屑由 Plugins 页自绘，插件侧不自带。
+    assert.equal(findAll(tree, (el) => el.props?.['role'] === 'tablist').length, 0, '不应自带页签栏')
+    assert.equal(findAll(tree, (el) => el.type === 'h2').length, 0, '不应自带标题')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('summary 视图只给一行摘要，不渲染页签', async () => {
+test('summary 视图只给一行说明，不渲染表单与进程区块', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
-    const tree = renderComponent(card.CodexProCard, { call: async () => ({}), view: 'summary' }, control)
-    assert.equal(findAll(tree, (el) => el.props?.['role'] === 'tablist').length, 0)
-    assert.equal(findAll(tree, (el) => el.props?.['role'] === 'tabpanel').length, 0)
+    const tree = await renderCard(card, control, { view: 'summary' })
+    assert.equal(findAll(tree, (el) => el.type === 'SettingsForm').length, 0)
+    assert.equal(findAll(tree, (el) => el.type === 'section').length, 0, 'summary 不应渲染进程区块')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('页签样式取自官方规格：0.5px 底线 + label-primary 指示条', async () => {
+test('进程区块独立于配置表单（启停不走 configForms）', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
-    const parts = await load(path.join(here, '..', 'src', 'client', 'parts.jsx'), root, 'parts')
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
-    const tree = renderComponent(parts.TabBar, {
-      active: 'process',
-      onChange: () => {},
-      label: '分区',
-      panelIdOf: (id) => `panel-${id}`,
-    }, control)
-
-    const tablist = findAll(tree, (el) => el.props?.['role'] === 'tablist')[0]
-    assert.equal(tablist.props.style.borderBottom, '0.5px solid var(--dsw-alias-border-l2)',
-      '页签栏底线必须是 0.5px 的 border-l2（官方规范：中性实线一律 0.5px）')
-    assert.equal(tablist.props.style.gap, '22px', '页签间距对齐官方 22px')
-
-    // 选中页签的指示条：2px 高、底色 label-primary（官方 .tab[data-active]::after）。
-    const tabs = findAll(tree, (el) => el.props?.['role'] === 'tab')
-    const selected = tabs.find((el) => el.props['aria-selected'] === true)
-    const indicator = findAll(selected, (el) => el.type === 'span' && el.props?.['aria-hidden'] === 'true'
-      && el.props?.style?.height === '2px')[0]
-    assert.ok(indicator, '选中页签必须有指示条')
-    assert.equal(indicator.props.style.background, 'var(--dsw-alias-label-primary)',
-      '指示条底色用 label-primary（官方值，不是 brand）')
-    assert.equal(indicator.props.style.borderRadius, '2px 2px 0 0', '指示条圆角对齐官方')
+    const calls = []
+    const tree = await renderCard(card, control, { calls })
+    // 进程区块是一个 <section>，含启停按钮与 Server URL。
+    assert.equal(findAll(tree, (el) => el.type === 'section').length, 1)
+    assert.ok(calls.includes('status'), '进程区块应读 status 端点')
+    assert.ok(calls.includes('catalog'), '配置页应读 catalog 端点取候选工作区')
+    // 配置读的不是本插件端点：那两个端点已下线。
+    assert.ok(!calls.includes('configure'), '不应调用已下线的 configure 端点')
+    assert.ok(!calls.includes('setAuthorization'), '不应调用已下线的 setAuthorization 端点')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('未选中页签用 tertiary 字色（官方色阶）', async () => {
+test('进程区块的启停按钮按状态给出可见禁用态', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
-    const parts = await load(path.join(here, '..', 'src', 'client', 'parts.jsx'), root, 'parts')
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
-    const tree = renderComponent(parts.TabBar, {
-      active: 'process',
-      onChange: () => {},
-      label: '分区',
-      panelIdOf: (id) => `panel-${id}`,
-    }, control)
-    const tabs = findAll(tree, (el) => el.props?.['role'] === 'tab')
-    const inactive = tabs.find((el) => el.props['aria-selected'] === false)
-    assert.equal(inactive.props.style.color, 'var(--dsw-alias-label-tertiary)',
-      '未选中页签用 tertiary（官方值，非 secondary）')
-    assert.equal(inactive.props.style.fontSize, '13px')
-    assert.equal(inactive.props.style.lineHeight, '20px')
+    const tree = await renderCard(card, control)
+    const buttons = findAll(tree, (el) => el.type === 'button')
+    const labels = buttons.map(textOf)
+    assert.ok(labels.includes('启动'), `应有启动按钮，实际 ${JSON.stringify(labels)}`)
+    assert.ok(labels.includes('停止'), '应有停止按钮')
+    // 未运行时：启动可用、停止禁用；且禁用态必须有可见视觉（不能只 disable）。
+    const start = buttons.find((el) => textOf(el) === '启动')
+    const stop = buttons.find((el) => textOf(el) === '停止')
+    assert.equal(start.props.disabled, false)
+    assert.equal(stop.props.disabled, true)
+    assert.equal(stop.props.style.opacity, 0.4, '禁用必须给出可见禁用态')
+    assert.equal(stop.props.style.cursor, 'default')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('授权工作区逐项勾选，点击只暂存草稿（不发请求）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const edits = []
+    const calls = []
+    const tree = await renderCard(card, control, {
+      edits,
+      calls,
+      workspaces: [
+        { path: 'E:\\a', title: 'A', exists: true, authorized: false },
+        { path: 'E:\\b', title: 'B', exists: true, authorized: false },
+      ],
+    })
+
+    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    assert.equal(boxes.length, 2, '每个候选工作区一个复选框')
+    boxes[0].props.onChange(true)
+
+    // 关键断言：复选框只把整份映射序列化成一次 edit，不触发任何 RPC。
+    assert.equal(edits.length, 1, '勾选应产生一次草稿编辑')
+    assert.equal(edits[0][0], 'authorized', '编辑的是 authorized 字段')
+    assert.deepEqual(JSON.parse(edits[0][1]), { 'E:\\a': true }, '草稿应为整份映射的 JSON')
+    assert.ok(!calls.includes('setAuthorization'), '勾选不得发请求（草稿由官方模型在保存时写入）')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('不存在的目录禁止勾选且带可见标记', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const tree = await renderCard(card, control, {
+      workspaces: [{ path: 'E:\\gone', title: '已消失', exists: false, authorized: false }],
+    })
+    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    assert.equal(boxes[0].props.disabled, true, '目录不存在时禁止勾选')
+    const tags = findAll(tree, (el) => el.type === 'Tag')
+    assert.ok(tags.some((el) => textOf(el) === '目录不存在'), '应给出可见原因')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('草稿里的授权态驱动复选框选中（单一来源）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const tree = await renderCard(card, control, {
+      form: makeForm({ authorized: { text: JSON.stringify({ 'E:\\a': true }), overridden: true, invalid: false } }),
+      workspaces: [
+        { path: 'E:\\a', title: 'A', exists: true, authorized: false },
+        { path: 'E:\\b', title: 'B', exists: true, authorized: false },
+      ],
+    })
+    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    assert.equal(boxes[0].props.checked, true, '草稿里已授权的项应显示为勾选')
+    assert.equal(boxes[1].props.checked, false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('无工作区时给出可行动提示而非空列表', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const tree = await renderCard(card, control, { workspaces: [] })
+    assert.equal(findAll(tree, (el) => el.type === 'Checkbox').length, 0)
+    const texts = findAll(tree, (el) => textOf(el) !== '').map(textOf).join('\n')
+    assert.ok(texts.includes('还没有工作区'), '应说明如何让工作区出现')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('表单不可写时禁用配置控件，但进程区块仍可读', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const tree = await renderCard(card, control, {
+      form: makeForm({ writable: false }),
+      workspaces: [{ path: 'E:\\a', title: 'A', exists: true, authorized: false }],
+    })
+    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    assert.equal(boxes[0].props.disabled, true, '只读时配置控件应禁用')
+    // 进程状态不依赖设置面：只读时仍应渲染并读到状态。
+    assert.equal(findAll(tree, (el) => el.type === 'section').length, 1, '进程区块仍应渲染')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -350,23 +426,56 @@ test('未选中页签用 tertiary 字色（官方色阶）', async () => {
 test('全圆胶囊必须成对声明 corner-shape: round（官方 Pill/Tag 同款）', async () => {
   // 宿主 corner-shape.css 用 *,*::before,*::after 把圆角统一为 superellipse(1.5)，
   // 会把未声明 corner-shape: round 的胶囊两端压成方角（Chrome 139+ 可见）。
-  // 官方 Pill.module.css / Tag.module.css 都把 999px 与 corner-shape: round 成对声明。
   const theme = await import('../src/client/theme.js')
   assert.equal(theme.pillBase.borderRadius, '999px')
-  assert.equal(theme.pillBase.cornerShape, 'round',
-    '全圆角必须配 cornerShape: round，否则方角化')
+  assert.equal(theme.pillBase.cornerShape, 'round', '全圆角必须配 cornerShape: round，否则方角化')
 })
 
-test('中性实线边框一律 0.5px（无 1px 残留）', async () => {
+test('中性实线边框一律 0.5px，半径走 token（无离格字面量）', async () => {
   const theme = await import('../src/client/theme.js')
   assert.equal(theme.HAIRLINE, '0.5px')
-  // 卡材料与分隔线都必须走 HAIRLINE，不得出现 1px。
   assert.ok(theme.cardStyle.border.startsWith(`${theme.HAIRLINE} `),
     `卡描边应为 0.5px，实际 ${theme.cardStyle.border}`)
   assert.equal(theme.dividerStyle.height, theme.HAIRLINE)
-  // 半径走 token 档位，不得出现硬编码 px（全圆胶囊由上一条专门覆盖）。
   assert.match(theme.cardStyle.borderRadius, /^var\(--dsw-radius-/,
     '卡半径必须走 --dsw-radius-* token（v0.1.7 起离格字面量会被宿主守卫拒斥）')
 })
 
+test('字段规格：枚举取自 core 词表、端口限范围、授权集只留 true 且键有序', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const form = await loadForm(root)
+    const core = await import('../src/core/codexpro.js')
 
+    // 1) 字段齐全，且枚举取值来自 core 权威词表（不硬编码副本）。
+    const fields = form.SPECS.map((spec) => spec.field)
+    for (const name of ['tunnelMode', 'tunnelHostname', 'port', 'bashMode', 'writeMode', 'authorized']) {
+      assert.ok(fields.includes(name), `应包含字段 ${name}`)
+    }
+    const tunnel = form.SPECS.find((spec) => spec.field === 'tunnelMode')
+    assert.equal(tunnel.parse('nope'), undefined, '词表外取值应被拒（镜像 Host 的 union(const)）')
+    assert.deepEqual(tunnel.parse(core.TUNNEL_MODES[1]), { kind: 'set', value: core.TUNNEL_MODES[1] })
+
+    // 2) 端口：只接受范围内的整数（空值、非数字、越界、非整数都挡住保存）。
+    const port = form.SPECS.find((spec) => spec.field === 'port')
+    assert.deepEqual(port.parse('9000'), { kind: 'set', value: '9000' }, 'Host schema 是字符串，写回字符串')
+    assert.equal(port.parse(''), undefined, '空值不算合法端口')
+    assert.equal(port.parse('abc'), undefined)
+    assert.equal(port.parse('70000'), undefined, '越界应被拒')
+    assert.equal(port.parse('8787.5'), undefined, '非整数应被拒')
+
+    // 3) 授权集：空集合表达为 clear（回落默认值，不写空气对象）；键排序使同一集合总有同一草稿文本。
+    const spec = form.SPECS.find((item) => item.field === 'authorized')
+    assert.deepEqual(spec.parse('{}'), { kind: 'clear' })
+    assert.deepEqual(spec.parse('{"E:\\\\b":true,"E:\\\\a":true}'), {
+      kind: 'set',
+      value: { 'E:\\a': true, 'E:\\b': true },
+    })
+    assert.deepEqual(spec.parse('{"E:\\\\a":false}'), { kind: 'clear' }, 'false 与缺席等价')
+    assert.equal(spec.parse('{ bad json'), undefined, '非法 JSON 应挡住保存')
+    assert.equal(spec.parse('["E:\\\\a"]'), undefined, '数组不是映射')
+    assert.equal(spec.parse('{"E:\\\\a":"yes"}'), undefined, '非布尔值会被 Host 拒，本地同样拒')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
