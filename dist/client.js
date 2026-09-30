@@ -435,6 +435,14 @@ function optionsOf(catalog) {
 function describeError(failure) {
   return failure instanceof Error ? failure.message : String(failure);
 }
+function applySnapshot(setters, statusData, catalogData) {
+  setters.setStatus(statusData);
+  setters.setCatalog(catalogData);
+  setters.setAuthDraft(authorizationOf(catalogData));
+  const options = optionsOf(catalogData);
+  setters.setOptionDraft(options);
+  setters.setOptionBaseline(options);
+}
 function useConfig(call) {
   const [status, setStatus] = (0, import_react3.useState)(null);
   const [catalog, setCatalog] = (0, import_react3.useState)(null);
@@ -444,15 +452,10 @@ function useConfig(call) {
   const [error, setError] = (0, import_react3.useState)("");
   const [busy, setBusy] = (0, import_react3.useState)(false);
   const refresh = (0, import_react3.useCallback)(async () => {
+    const setters = { setStatus, setCatalog, setAuthDraft, setOptionDraft, setOptionBaseline };
     try {
       const [statusData, catalogData] = await Promise.all([call("status"), call("catalog")]);
-      setStatus(statusData);
-      setCatalog(catalogData);
-      setAuthDraft(authorizationOf(catalogData));
-      const options = optionsOf(catalogData);
-      setOptionDraft(options);
-      setOptionBaseline(options);
-      setError("");
+      applySnapshot(setters, statusData, catalogData);
     } catch (failure) {
       setError(describeError(failure));
     }
@@ -466,18 +469,12 @@ function useConfig(call) {
   }, [optionDraft, optionBaseline]);
   const workspaces = catalog?.workspaces ?? [];
   const authDirty = workspaces.some((item) => authDraft?.[item.path] === true !== (item.authorized === true));
-  const run = (0, import_react3.useCallback)(async (action) => {
-    setBusy(true);
-    try {
-      await action();
-      setError("");
-    } catch (failure) {
-      setError(describeError(failure));
-    } finally {
-      setBusy(false);
-      await refresh();
-    }
-  }, [refresh]);
+  const actions = buildActions({
+    call,
+    refresh,
+    setters: { setBusy, setError, setAuthDraft, setOptionDraft },
+    state: { authDraft, optionDraft }
+  });
   return {
     status,
     catalog,
@@ -489,16 +486,35 @@ function useConfig(call) {
     error,
     busy,
     refresh,
+    ...actions
+  };
+}
+function buildActions({ call, refresh, setters, state }) {
+  const run = async (action) => {
+    setters.setBusy(true);
+    setters.setError("");
+    let failed = false;
+    try {
+      await action();
+    } catch (failure) {
+      failed = true;
+      setters.setError(describeError(failure));
+    } finally {
+      setters.setBusy(false);
+    }
+    if (!failed) await refresh();
+  };
+  return {
     /** 启停进程。 @param {'start'|'stop'} action 动作 @returns {Promise<void>} 完成后结算 */
     act: (action) => run(() => call(action)),
     /** 保存授权集。 @returns {Promise<void>} 完成后结算 */
-    saveAuthorization: () => run(() => call("setAuthorization", { authorized: authDraft ?? {} })),
+    saveAuthorization: () => run(() => call("setAuthorization", { authorized: state.authDraft ?? {} })),
     /** 保存参数。 @returns {Promise<void>} 完成后结算 */
-    saveOptions: () => run(() => call("configure", optionDraft)),
+    saveOptions: () => run(() => call("configure", state.optionDraft)),
     /** 切换某工作区授权草稿。 @param {string} path 路径 @param {boolean} next 新值 @returns {void} */
-    toggleWorkspace: (path, next) => setAuthDraft((prev) => ({ ...prev ?? {}, [path]: next })),
+    toggleWorkspace: (path, next) => setters.setAuthDraft((prev) => ({ ...prev ?? {}, [path]: next })),
     /** 变更参数字段草稿。 @param {string} field 字段 @param {string} value 新值 @returns {void} */
-    changeOption: (field, value) => setOptionDraft((prev) => prev === null ? prev : { ...prev, [field]: value })
+    changeOption: (field, value) => setters.setOptionDraft((prev) => prev === null ? prev : { ...prev, [field]: value })
   };
 }
 
