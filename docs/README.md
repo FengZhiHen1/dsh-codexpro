@@ -15,7 +15,7 @@
 - 仓库骨架已建立：`FengZhiHen1/dsh-codexpro`（公共、MIT）已创建，`plugins/dsh-codexpro/` 已作为 submodule 挂载并提交。npm 包名 `dsh-codexpro` 已核实可用。
 - **进程机制已完成实测**（2026-09-30，隔离实测场）：停止主路径定型为 stdin `q`（唯一触发 codexpro 自身清理的通道，见 DSR-007）；`ctx.subprocess` 的 Windows 进程容器确认可用，整树终止已验证（DSR-008）；崩溃残留的 runtime 文件由 codexpro 自行回收。⇒ 无阻塞实现的未取证项。
 - **配置面已改为官方通道**（DSR-009）：配置读写经 `configForms` + 复制的 `SettingsFormModel`，配置页留在侧栏插件页的 `plugins.row.config`；本插件端点收敛为四条进程/探测端点。
-- **已适配 DSH 0.2.1**（DSR-010）：不再 import 任何 Harness Client 包；设置页框架、字段几何与草稿语义复制进 bundle，类名 `cxp-` 前缀；补齐包级 locale/icon 与配置页中英文案；版本号保持 `0.1.0`。
+- **已适配 DSH 0.2.1**（DSR-010）：不再 import 任何 Harness Client 包；设置页框架、字段几何与草稿语义复制进 bundle，类名 `cxp-` 前缀；补齐包级 locale/icon 与配置页中英文案；版本号为 `0.1.1`（2026-10-18 打 `v0.1.1` tag，供钉版本安装；未发布 npm）。
 
 ## 阅读顺序
 

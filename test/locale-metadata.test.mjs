@@ -17,8 +17,8 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 /** 语言文件名文法（与 Host package-meta 一致）。 */
 const LANGUAGE_FILE = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*\.json$/
 
-test('版本号保持在 0.1.0（无已发布发行版时重置版本线）', () => {
-  assert.equal(manifest.version, '0.1.0')
+test('版本号与 0.1 版本线一致（0.1.1）', () => {
+  assert.equal(manifest.version, '0.1.1')
 })
 
 test('声明 DSH 0.2.1 基线并导出 locale/icon 资源', () => {

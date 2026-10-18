@@ -1,6 +1,6 @@
 {
   "name": "dsh-codexpro",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DSH 插件：在侧栏插件页管理各项目对应的 codexpro 配置——以 DSH 工作区为唯一授权来源同步 codexpro profile，并托管其进程启停与 tunnel 方式。",
   "type": "module",
   "main": "./src/adapter/index.js",
