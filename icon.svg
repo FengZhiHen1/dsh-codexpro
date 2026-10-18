@@ -1,7 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#1F2430"/>
-  <path d="M20 18h18l8 8v22a4 4 0 0 1-4 4H20a4 4 0 0 1-4-4V22a4 4 0 0 1 4-4Z" fill="#F4F6FA"/>
-  <path d="M38 18v8h8" fill="#C9D2E0"/>
-  <path d="M24 34l6 5-6 5" stroke="#1F2430" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M34 44h8" stroke="#1F2430" stroke-width="2.6" stroke-linecap="round"/>
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="codexpro-ring" x1="7" y1="6" x2="29" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#69B9FF" />
+      <stop offset="1" stop-color="#45E7A4" />
+    </linearGradient>
+  </defs>
+  <path d="M25.78 10.22A11 11 0 1 0 25.78 25.78" stroke="url(#codexpro-ring)" stroke-width="3.6" stroke-linecap="round" />
+  <path d="M13.4 12.6L18.4 17.2L13.4 21.4" stroke="#658EFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M20 21.4H23.2" stroke="#45E7A4" stroke-width="3.2" stroke-linecap="round" />
 </svg>
