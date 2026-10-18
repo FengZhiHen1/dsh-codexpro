@@ -833,6 +833,14 @@ var SPECS = [
 function needsTunnelName(tunnelMode) {
   return TUNNEL_NAME_REQUIRED_TUNNELS.includes(String(tunnelMode));
 }
+function missingTunnelField(state) {
+  const textOf = (field) => String(state?.[field]?.text ?? "").trim();
+  const mode = textOf(TUNNEL_MODE);
+  return {
+    tunnelHostname: HOSTNAME_REQUIRED_TUNNELS.includes(mode) && textOf(TUNNEL_HOSTNAME) === "",
+    tunnelName: needsTunnelName(mode) && textOf(TUNNEL_NAME) === ""
+  };
+}
 function projection(form) {
   const state = { ...form.shell() };
   for (const spec of SPECS) state[spec.field] = form.field(spec.field);
@@ -852,6 +860,7 @@ function createController(scope) {
 // src/client/panels.jsx
 var import_react4 = require("react");
 var NEEDS_HOSTNAME = new Set(HOSTNAME_REQUIRED_TUNNELS);
+var EMPTY_MISSING = Object.freeze({ tunnelHostname: false, tunnelName: false });
 var TUNNEL_LABEL_KEY = Object.freeze({
   none: "tunnelNone",
   ngrok: "tunnelNgrok",
@@ -868,9 +877,11 @@ function commonField(field, overriddenLabel, resetLabel) {
     resetLabel
   };
 }
-function NetworkGroup({ fields, disabled, onEdit, onReset, t }) {
+function NetworkGroup({ fields, disabled, onEdit, onReset, missing, t }) {
   const needsHost = NEEDS_HOSTNAME.has(fields.tunnelMode.text);
   const needsName = needsTunnelName(fields.tunnelMode.text);
+  const hostnameInvalid = fields.tunnelHostname.invalid || missing.tunnelHostname;
+  const nameInvalid = fields.tunnelName.invalid || missing.tunnelName;
   const overriddenLabel = t("overridden");
   const resetLabel = t("reset");
   return (0, import_react4.createElement)(SettingsSection, {
@@ -918,6 +929,8 @@ function NetworkGroup({ fields, disabled, onEdit, onReset, t }) {
         hint: t("tunnelHostnameHint"),
         help: { label: t("helpTunnelHostnameLabel"), content: t("helpTunnelHostnameContent") },
         ...commonField(fields.tunnelHostname, overriddenLabel, resetLabel),
+        invalid: hostnameInvalid,
+        invalidLabel: missing.tunnelHostname ? t("tunnelHostnameRequired") : void 0,
         disabled,
         placeholder: "your-domain.ngrok-free.dev",
         onEdit: (text) => onEdit(TUNNEL_HOSTNAME, text),
@@ -930,9 +943,10 @@ function NetworkGroup({ fields, disabled, onEdit, onReset, t }) {
         hint: t("tunnelNameHint"),
         help: { label: t("helpTunnelNameLabel"), content: t("helpTunnelNameContent") },
         ...commonField(fields.tunnelName, overriddenLabel, resetLabel),
-        invalidLabel: t("tunnelNameInvalid"),
+        invalid: nameInvalid,
+        invalidLabel: missing.tunnelName ? t("tunnelNameRequired") : t("tunnelNameInvalid"),
         disabled,
-        placeholder: "codexpro",
+        placeholder: "my-tunnel",
         onEdit: (text) => onEdit(TUNNEL_NAME, text),
         onReset: () => onReset(TUNNEL_NAME)
       }) : null
@@ -967,9 +981,9 @@ function PermissionGroup({ fields, disabled, onEdit, onReset, t }) {
     optionField("write", fields.writeMode, "writeMode", "writeModeHint", "helpWriteModeLabel", "helpWriteModeContent")
   ]));
 }
-function OptionsFields({ fields, disabled, onEdit, onReset, t }) {
+function OptionsFields({ fields, missing = EMPTY_MISSING, disabled, onEdit, onReset, t }) {
   return (0, import_react4.createElement)("div", null, [
-    (0, import_react4.createElement)(NetworkGroup, { key: "network", fields, disabled, onEdit, onReset, t }),
+    (0, import_react4.createElement)(NetworkGroup, { key: "network", fields, missing, disabled, onEdit, onReset, t }),
     (0, import_react4.createElement)(PermissionGroup, { key: "permission", fields, disabled, onEdit, onReset, t })
   ]);
 }
@@ -1074,6 +1088,8 @@ function CodexProPage(props) {
   const { catalog } = useCatalog(props.call);
   const t = props.t;
   const disabled = !form.writable || form.saving;
+  const missing = missingTunnelField(form);
+  const invalid = form.invalid || missing.tunnelHostname || missing.tunnelName;
   return (0, import_react7.createElement)("div", { className: "cxp-settings" }, [
     (0, import_react7.createElement)("style", { key: "styles" }, CLIENT_CSS),
     (0, import_react7.createElement)(ProcessBlock, {
@@ -1094,7 +1110,7 @@ function CodexProPage(props) {
         save: t("save"),
         saving: t("saving")
       },
-      state: form,
+      state: { ...form, invalid },
       onSave: props.save,
       onDiscard: props.discard
     }, [
@@ -1108,6 +1124,7 @@ function CodexProPage(props) {
           bashMode: form[BASH_MODE],
           writeMode: form[WRITE_MODE]
         },
+        missing,
         disabled,
         onEdit: props.edit,
         onReset: props.resetField,
@@ -1219,6 +1236,8 @@ var zh = {
   writeMode: "\u5199\u5165\u6A21\u5F0F",
   writeModeHint: "workspace \u5141\u8BB8\u5728\u5DF2\u6388\u6743\u76EE\u5F55\u5185\u76F4\u63A5\u8BFB\u5199",
   tunnelNameInvalid: "\u96A7\u9053\u540D\u4E0D\u80FD\u8D85\u8FC7 128 \u4E2A\u5B57\u7B26",
+  tunnelHostnameRequired: "\u8BE5 tunnel \u65B9\u5F0F\u5FC5\u586B\uFF1A\u516C\u7F51 hostname \u4E0D\u80FD\u4E3A\u7A7A",
+  tunnelNameRequired: "\u8BE5 tunnel \u65B9\u5F0F\u5FC5\u586B\uFF1ACloudflare \u96A7\u9053\u540D\u4E0D\u80FD\u4E3A\u7A7A",
   portInvalid: "\u7AEF\u53E3\u9700\u4E3A 1\u201365535 \u7684\u6574\u6570",
   overridden: "\u5DF2\u8986\u76D6",
   reset: "\u91CD\u7F6E",
@@ -1226,7 +1245,7 @@ var zh = {
   saving: "\u4FDD\u5B58\u4E2D\u2026",
   unavailable: "\u672C profile \u672A\u63D0\u4F9B\u8BE5\u914D\u7F6E\u9879\uFF08\u63D2\u4EF6\u884C\u672A\u6FC0\u6D3B\u6216\u8BBE\u7F6E\u9762\u53EA\u8BFB\uFF09\uFF0C\u5F53\u524D\u6309\u63D2\u4EF6\u884C\u914D\u7F6E\u5DE5\u4F5C\u3002",
   readOnly: "\u5F53\u524D profile \u7684\u8BBE\u7F6E\u9762\u53EA\u8BFB\uFF0C\u65E0\u6CD5\u4FDD\u5B58\u3002",
-  saveFailed: "\u4FDD\u5B58\u672A\u751F\u6548\uFF1AHost \u672A\u63A5\u53D7\uFF08\u6821\u9A8C\u672A\u901A\u8FC7\u6216\u7248\u672C\u51B2\u7A81\uFF09\uFF0C\u5DF2\u56DE\u8BFB\u5F53\u524D\u751F\u6548\u503C\uFF1B\u8349\u7A3F\u4FDD\u7559\uFF0C\u8BF7\u8C03\u6574\u540E\u91CD\u8BD5\u3002",
+  saveFailed: "\u4FDD\u5B58\u672A\u751F\u6548\uFF1AHost \u62D2\u7EDD\u4E86\u8FD9\u6B21\u5199\u5165\uFF08\u6821\u9A8C\u672A\u901A\u8FC7\u6216\u7248\u672C\u51B2\u7A81\uFF09\u3002\u5DF2\u56DE\u8BFB\u5F53\u524D\u751F\u6548\u503C\uFF0C\u8349\u7A3F\u4FDD\u7559\uFF1B\u8BF7\u68C0\u67E5\u6807\u7EA2\u7684\u5B57\u6BB5\uFF0C\u82E5\u521A\u624D\u5728\u522B\u5904\u6539\u8FC7\u914D\u7F6E\uFF0C\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5\u3002",
   restartNote: "\u6388\u6743\u4E0E\u53C2\u6570\u6539\u52A8\u9700\u91CD\u542F\u8FDB\u7A0B\u624D\u751F\u6548\uFF1B\u300C\u4FDD\u5B58\u300D\u5199\u5165\u672C profile \u7684\u884C\u914D\u7F6E\u3002",
   helpTunnelModeLabel: "Tunnel \u65B9\u5F0F\u8BF4\u660E",
   helpTunnelModeContent: "\u51B3\u5B9A ChatGPT \u7528\u4EC0\u4E48\u5730\u5740\u8FDE\u5230\u672C\u673A codexpro\u3002\u9ED8\u8BA4 none\uFF0C\u53EA\u5728\u4F60\u8FD9\u53F0\u673A\u5668\u4E0A\u53EF\u7528\u3002none\uFF1A\u4E0D\u4EA7\u751F\u516C\u7F51\u5165\u53E3\uFF1Bcloudflare\uFF1A\u514D\u914D\u7F6E\u5FEB\u901F\u96A7\u9053\uFF0C\u4F46\u6BCF\u6B21\u91CD\u542F\u6362\u65B0 URL\uFF1Bcloudflare-named\uFF1A\u9700\u5148\u5728 Cloudflare \u5EFA\u597D\u5177\u540D\u96A7\u9053\uFF0CURL \u56FA\u5B9A\uFF1Bngrok\uFF1A\u56FA\u5B9A dev domain\uFF0C\u9700\u672C\u673A\u5DF2\u5B89\u88C5\u5E76\u767B\u5F55\uFF1Btailscale\uFF1A\u8D70 Tailscale Funnel\u3002\u9664 none \u5916\u90FD\u4F1A\u628A\u670D\u52A1\u66B4\u9732\u5230\u516C\u7F51\uFF0C\u8BF7\u786E\u4FDD\u5DF2\u8BBE\u7F6E\u53EF\u4FE1\u7684\u8BBF\u95EE token\u3002",
@@ -1285,6 +1304,8 @@ var en = {
   writeMode: "Write mode",
   writeModeHint: "workspace allows direct reads and writes inside authorized directories",
   tunnelNameInvalid: "Tunnel name must be at most 128 characters",
+  tunnelHostnameRequired: "Required for this tunnel mode: the public hostname cannot be empty",
+  tunnelNameRequired: "Required for this tunnel mode: the Cloudflare tunnel name cannot be empty",
   portInvalid: "Port must be an integer from 1 to 65535",
   overridden: "Overridden",
   reset: "Reset",
@@ -1292,7 +1313,7 @@ var en = {
   saving: "Saving\u2026",
   unavailable: "This profile does not serve this configuration (the plugin row is inactive or settings are read-only); the row\u2019s own configuration applies.",
   readOnly: "This profile\u2019s settings are read-only; saving is unavailable.",
-  saveFailed: "The save did not take effect: the Host rejected it (validation failed or the revision changed). The current values were read back; your draft is kept for correction.",
+  saveFailed: "The save did not take effect: the Host rejected the write (validation failed or the revision changed). The current values were read back and your draft kept; check the fields marked invalid, and refresh before retrying if the configuration changed elsewhere.",
   restartNote: "Authorization and parameter changes take effect after restarting the process; \u201CSave\u201D writes this profile\u2019s row configuration.",
   helpTunnelModeLabel: "About the tunnel mode",
   helpTunnelModeContent: "Decides which address ChatGPT uses to reach the local codexpro. The default none keeps it on this machine. none: no public endpoint; cloudflare: quick tunnel that changes its URL on every restart; cloudflare-named: a named Cloudflare tunnel with a stable URL; ngrok: a stable dev domain that needs a local ngrok login; tailscale: Tailscale Funnel. Every mode except none exposes the service to the public internet, so set a trustworthy token first.",

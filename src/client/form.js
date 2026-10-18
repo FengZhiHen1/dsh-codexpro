@@ -9,6 +9,7 @@
 
 import {
   BASH_MODES,
+  HOSTNAME_REQUIRED_TUNNELS,
   PORT_RANGE,
   TUNNEL_MODES,
   TUNNEL_NAME_MAX_LENGTH,
@@ -181,6 +182,24 @@ export const SPECS = [
  */
 export function needsTunnelName(tunnelMode) {
   return TUNNEL_NAME_REQUIRED_TUNNELS.includes(String(tunnelMode))
+}
+
+/**
+ * 当前草稿/生效配置缺少的必填 tunnel 字段。
+ *
+ * Host 的跨字段校验（adapter/settings.js 的 validateConfig）会拒绝这些组合，而官方
+ * configForms 只回「拒绝」布尔、不携带原因。故在本地按同一规则标红并禁用保存：
+ * 用户看到缺哪一项，而不是提交一次必然失败、且没有解释的写入。
+ * @param {object} state 表单投影（各字段为 `{ text }` 状态）
+ * @returns {{tunnelHostname: boolean, tunnelName: boolean}} 缺值字段，true 表示必填但为空
+ */
+export function missingTunnelField(state) {
+  const textOf = (field) => String(state?.[field]?.text ?? '').trim()
+  const mode = textOf(TUNNEL_MODE)
+  return {
+    tunnelHostname: HOSTNAME_REQUIRED_TUNNELS.includes(mode) && textOf(TUNNEL_HOSTNAME) === '',
+    tunnelName: needsTunnelName(mode) && textOf(TUNNEL_NAME) === '',
+  }
 }
 
 /**

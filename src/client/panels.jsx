@@ -13,6 +13,9 @@ import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME,
 /** 需要公网 hostname 的 tunnel 取值（权威定义在 core/codexpro.js）。 */
 const NEEDS_HOSTNAME = new Set(HOSTNAME_REQUIRED_TUNNELS)
 
+/** 无必填字段缺失时的缺省状态（OptionsFields 未收到 missing 时使用）。 */
+const EMPTY_MISSING = Object.freeze({ tunnelHostname: false, tunnelName: false })
+
 /** tunnel 取值 → 字典键。 */
 const TUNNEL_LABEL_KEY = Object.freeze({
   none: 'tunnelNone',
@@ -49,9 +52,12 @@ function commonField(field, overriddenLabel, resetLabel) {
  * @param {Function} props.t 翻译函数
  * @returns {object} React 元素
  */
-function NetworkGroup({ fields, disabled, onEdit, onReset, t }) {
+function NetworkGroup({ fields, disabled, onEdit, onReset, missing, t }) {
   const needsHost = NEEDS_HOSTNAME.has(fields.tunnelMode.text)
   const needsName = needsTunnelName(fields.tunnelMode.text)
+  // 必填但为空：Host 会拒绝整次保存，故在字段上标红并显示缺值提示。
+  const hostnameInvalid = fields.tunnelHostname.invalid || missing.tunnelHostname
+  const nameInvalid = fields.tunnelName.invalid || missing.tunnelName
   const overriddenLabel = t('overridden')
   const resetLabel = t('reset')
   return h(SettingsSection, {
@@ -101,6 +107,8 @@ function NetworkGroup({ fields, disabled, onEdit, onReset, t }) {
             hint: t('tunnelHostnameHint'),
             help: { label: t('helpTunnelHostnameLabel'), content: t('helpTunnelHostnameContent') },
             ...commonField(fields.tunnelHostname, overriddenLabel, resetLabel),
+            invalid: hostnameInvalid,
+            invalidLabel: missing.tunnelHostname ? t('tunnelHostnameRequired') : undefined,
             disabled,
             placeholder: 'your-domain.ngrok-free.dev',
             onEdit: (text) => onEdit(TUNNEL_HOSTNAME, text),
@@ -115,9 +123,10 @@ function NetworkGroup({ fields, disabled, onEdit, onReset, t }) {
             hint: t('tunnelNameHint'),
             help: { label: t('helpTunnelNameLabel'), content: t('helpTunnelNameContent') },
             ...commonField(fields.tunnelName, overriddenLabel, resetLabel),
-            invalidLabel: t('tunnelNameInvalid'),
+            invalid: nameInvalid,
+            invalidLabel: missing.tunnelName ? t('tunnelNameRequired') : t('tunnelNameInvalid'),
             disabled,
-            placeholder: 'codexpro',
+            placeholder: 'my-tunnel',
             onEdit: (text) => onEdit(TUNNEL_NAME, text),
             onReset: () => onReset(TUNNEL_NAME),
           })
@@ -176,9 +185,9 @@ function PermissionGroup({ fields, disabled, onEdit, onReset, t }) {
  * @param {Function} props.t 翻译函数
  * @returns {object} React 元素
  */
-export function OptionsFields({ fields, disabled, onEdit, onReset, t }) {
+export function OptionsFields({ fields, missing = EMPTY_MISSING, disabled, onEdit, onReset, t }) {
   return h('div', null, [
-    h(NetworkGroup, { key: 'network', fields, disabled, onEdit, onReset, t }),
+    h(NetworkGroup, { key: 'network', fields, missing, disabled, onEdit, onReset, t }),
     h(PermissionGroup, { key: 'permission', fields, disabled, onEdit, onReset, t }),
   ])
 }

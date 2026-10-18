@@ -581,14 +581,14 @@ test('隧道名输入框只在 cloudflare-named 下出现（条件字段）', as
 
     // none：既无 hostname 也无隧道名。
     const none = await renderCard(card, control)
-    assert.ok(!placeholders(none).includes('codexpro'), 'none 下不应出现隧道名输入框')
+    assert.ok(!placeholders(none).includes('my-tunnel'), 'none 下不应出现隧道名输入框')
 
     // ngrok：有 hostname，无隧道名（隧道名只对 cloudflare-named 有意义）。
     const ngrok = await renderCard(card, control, {
       form: makeForm({ tunnelMode: { text: 'ngrok', overridden: false, invalid: false } }),
     })
     assert.ok(placeholders(ngrok).includes('your-domain.ngrok-free.dev'), 'ngrok 下应出现 hostname')
-    assert.ok(!placeholders(ngrok).includes('codexpro'), 'ngrok 下不应出现隧道名')
+    assert.ok(!placeholders(ngrok).includes('my-tunnel'), 'ngrok 下不应出现隧道名')
 
     // cloudflare-named：两者都出现（这是原先缺失的字段）。
     const named = await renderCard(card, control, {
@@ -596,7 +596,42 @@ test('隧道名输入框只在 cloudflare-named 下出现（条件字段）', as
     })
     const namedFields = placeholders(named)
     assert.ok(namedFields.includes('your-domain.ngrok-free.dev'), 'cloudflare-named 下应出现 hostname')
-    assert.ok(namedFields.includes('codexpro'), 'cloudflare-named 下应出现隧道名输入框（原缺失）')
+    assert.ok(namedFields.includes('my-tunnel'), 'cloudflare-named 下应出现隧道名输入框（原缺失）')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('缺必填隧道名时保存键禁用，并把原因标在字段上（不再只回通用失败）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const base = {
+      dirty: true,
+      tunnelMode: { text: 'cloudflare-named', overridden: true, invalid: false },
+      tunnelHostname: { text: 'codexpro-local.wenran.me', overridden: true, invalid: false },
+      tunnelName: { text: '', overridden: false, invalid: false },
+    }
+    const blocked = await renderCard(card, control, { form: makeForm(base) })
+    const saveBlocked = findAll(blocked, (el) => el.props?.className === 'cxp-save')
+    assert.equal(saveBlocked.length, 1)
+    assert.equal(saveBlocked[0].props.disabled, true, '缺必填字段时保存必须为原生禁用')
+    const input = findAll(blocked, (el) => el.type === 'input' && el.props?.id === 'codexpro-tunnel-name')
+    assert.equal(input.length, 1)
+    assert.equal(input[0].props['aria-invalid'], true, '缺值字段应标记 aria-invalid')
+    const message = findAll(blocked, (el) => el.props?.id === 'codexpro-tunnel-name-message')
+    assert.equal(textOf(message[0]), zh.tunnelNameRequired, '字段下方应显示缺值原因')
+
+    const filled = await renderCard(card, control, {
+      form: makeForm({
+        ...base,
+        tunnelName: { text: 'codexpro-local', overridden: true, invalid: false },
+      }),
+    })
+    const saveFilled = findAll(filled, (el) => el.props?.className === 'cxp-save')
+    assert.equal(saveFilled.length, 1)
+    assert.equal(saveFilled[0].props.disabled, false, '填齐必填字段后保存应可用')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

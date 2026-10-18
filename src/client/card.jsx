@@ -11,7 +11,7 @@ import { SettingsForm } from './fields.jsx'
 import { CLIENT_CSS } from './styles.js'
 import { ErrorNote, StatusTag } from './parts.jsx'
 import { ActionButton } from './controls.jsx'
-import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, authorizedOfText } from './form.js'
+import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, authorizedOfText, missingTunnelField } from './form.js'
 import { OptionsFields, WorkspacesField } from './panels.jsx'
 import { useCatalog } from './use-catalog.js'
 import { useProcess } from './use-process.js'
@@ -55,6 +55,10 @@ function CodexProPage(props) {
   // 表单不可用时官方 SettingsForm 会自己渲染提示行；进程区块仍应可读，
   // 因为进程状态不依赖设置面，且用户需要知道进程是否在跑。
   const disabled = !form.writable || form.saving
+  // Host 的跨字段校验不会经官方 configForms 回传原因，故本地拦下必然失败的组合：
+  // 缺必填 tunnel 字段时标红对应字段并禁用保存（见 form.js missingTunnelField）。
+  const missing = missingTunnelField(form)
+  const invalid = form.invalid || missing.tunnelHostname || missing.tunnelName
 
   return h('div', { className: 'cxp-settings' }, [
     h('style', { key: 'styles' }, CLIENT_CSS),
@@ -76,7 +80,7 @@ function CodexProPage(props) {
         save: t('save'),
         saving: t('saving'),
       },
-      state: form,
+      state: { ...form, invalid },
       onSave: props.save,
       onDiscard: props.discard,
     }, [
@@ -90,6 +94,7 @@ function CodexProPage(props) {
           bashMode: form[BASH_MODE],
           writeMode: form[WRITE_MODE],
         },
+        missing,
         disabled,
         onEdit: props.edit,
         onReset: props.resetField,
