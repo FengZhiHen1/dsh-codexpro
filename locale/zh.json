@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CodexPro",
+    "description": "在侧栏插件页授权 DSH 工作区给 codexpro，并托管其本地进程与 tunnel 方式。"
+  }
+}

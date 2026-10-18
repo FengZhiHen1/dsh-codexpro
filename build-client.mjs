@@ -18,8 +18,12 @@ const PLUGIN_ID = 'dsh-codexpro'
 const ENTRY = join(here, 'src/client/index.jsx')
 const OUTFILE = join(here, 'dist/client.js')
 
-// 外化集合与 package.json 的 dsh.client.inject 声明一致（+ react/react-dom 基线）。
+// 外部模块：React 基线由模块表提供；@deepseek-ai/* 保留为外化兜底，但产物不得 require
+// 任何 Harness Client 包（下面的守卫会把这种引用变成构建失败，而不是静默进 bundle）。
 const EXTERNALS = ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', '@deepseek-ai/*']
+
+/** Harness Client 包的 require；出现即违反插件 UI 引用红线。 */
+const HARNESS_CLIENT_REQUIRE = /require\(["']@deepseek-ai\/dsh-client-[^"']+["']\)/
 
 const BANNER = [
   `window.__ModuleLoader__.load({ id: "${PLUGIN_ID}", factory: (require) => {`,
@@ -52,7 +56,12 @@ async function bundle() {
     footer: { js: FOOTER },
     write: false,
   })
-  return result.outputFiles[0].text
+  const text = result.outputFiles[0].text
+  const forbidden = text.match(HARNESS_CLIENT_REQUIRE)
+  if (forbidden !== null) {
+    throw new Error(`client bundle requires a Harness Client package: ${forbidden[0]}（插件 UI 不得 import 内部包）`)
+  }
+  return text
 }
 
 /**

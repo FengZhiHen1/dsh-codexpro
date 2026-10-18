@@ -1,11 +1,13 @@
 // ui-spec.test.mjs — UI 规格测试：把「与官方设置页同构」这一声称变成可验证的断言。
 //
 // 覆盖只有运行期才能确认的事：
-//   1. 配置页形态（官方规范：不自带卡片壳/页签栏，保存栏归官方 SettingsForm）；
+//   1. 配置页形态（官方规范：不自带卡片壳/页签栏，保存栏归复制的 SettingsForm）；
 //   2. 授权工作区复选框：点击只暂存草稿（把整份映射序列化后 edit 一次），不发请求；
-//   3. `view: 'summary'` 只给一行说明，不渲染表单与进程区块。
+//   3. `view: 'summary'` 只给一行说明，不渲染表单与进程区块，也不发 RPC；
+//   4. 字段几何、帮助展开、只读禁用与 select 外框；
+//   5. 样式无字面颜色、表单根无 max-width。
 // 手法：esbuild 打包 card.jsx 与 React 替身，在裸 node 中调用组件函数并检查元素树。
-// 参考：knowledge/client/15 §4；docs/cookbook/adding-a-settings-card.md。
+// 参考：knowledge/v0.2.1-rc.2/05-插件工程约定.md「插件设置页」。
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,65 +17,28 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { build } from 'esbuild'
+import { CLIENT_CSS } from '../src/client/styles.js'
+import { zh } from '../src/client/locales.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const stub = path.join(here, 'helpers', 'react-stub.mjs')
 
 /**
- * esbuild 插件：把平台包替换为轻量替身，避免 node 侧解析其 CSS 依赖。
- * 只需满足本插件用到的原语（SettingsForm / Checkbox / Tag），其余导出返回空函数以防误用。
- * @returns {object} esbuild 插件
+ * 以中文词典构造翻译函数，支持 `{name}` 插值。
+ * @param {Record<string, string>} dictionary 词典
+ * @returns {(key: string, params?: Record<string, unknown>) => string} 翻译函数
  */
-function stubPlatformPlugin() {
-  return {
-    name: 'stub-platform',
-    setup(build) {
-      build.onResolve({ filter: /^@deepseek-ai\// }, (args) => ({ path: args.path, namespace: 'platform-stub' }))
-      build.onLoad({ filter: /.*/, namespace: 'platform-stub' }, () => ({
-        contents: `
-function passthrough(name) {
-  // 必须保留 props.children：SettingsForm 的子节点就是被测的字段控件，
-  // 丢掉它们会让断言只看到空壳（曾把「找不到复选框」误判为产品缺陷）。
-  return function Stub(props) {
-    const children = props && props.children !== undefined ? props.children : []
-    return { type: name, props: { ...(props ?? {}), children } }
-  }
-}
-const SettingsForm = passthrough('SettingsForm')
-const SettingsValueField = passthrough('SettingsValueField')
-const SettingsSecretField = passthrough('SettingsSecretField')
-const SettingsFormModel = class StubFormModel {
-  constructor(scope, specs) { this.scope = scope; this.specs = specs }
-  bind(project) { this.project = project; return { get: () => project() } }
-  shell() { return { available: true, writable: true, dirty: false, invalid: false, saving: false, failed: false } }
-  field(field) { const spec = this.specs.find((s) => s.field === field); return { text: spec ? spec.format(undefined) : '', overridden: false, invalid: false } }
-  actions() { return { edit: () => {}, resetField: () => {}, save: () => {}, discard: () => {} } }
-  dispose() {}
-}
-function settingsTextField(field) {
-  return { field, format: (v) => (typeof v === 'string' ? v : ''), parse: (t) => (String(t).trim() === '' ? { kind: 'clear' } : { kind: 'set', value: String(t).trim() }) }
-}
-const Checkbox = passthrough('Checkbox')
-const Tag = passthrough('Tag')
-const Button = passthrough('Button')
-const Pill = passthrough('Pill')
-// 图标原语：官方以函数组件形态导出，自绘字段的帮助按钮要用。
-const IconInfoOutlineRegular = passthrough('IconInfoOutlineRegular')
-export { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill, IconInfoOutlineRegular }
-export default { SettingsForm, SettingsValueField, SettingsSecretField, SettingsFormModel, settingsTextField, Checkbox, Tag, Button, Pill, IconInfoOutlineRegular }
-`,
-        loader: 'js',
-      }))
-    },
+function translate(dictionary) {
+  return (key, params = {}) => {
+    const template = dictionary[key] ?? key
+    return String(template).replace(/\{(\w+)\}/g, (match, name) => (
+      Object.hasOwn(params, name) ? String(params[name]) : match
+    ))
   }
 }
 
 /**
- * 打包入口与其 React 替身。
- *
- * 平台包必须外化（与生产 build-client.mjs 的 external 一致）：它们是浏览器侧的
- * shell-seeded 模块，且其实现 import CSS Module——内联进 node 侧的打包树会因
- * 无法处理 .module.css 而失败。外化后由替身提供，与真实 loader 的模块表同形。
+ * 打包入口并加载；React 替身经 alias 注入。
  * @param {string} entry 源码入口
  * @param {string} root 临时目录
  * @param {string} name 产物名
@@ -86,10 +51,8 @@ async function load(entry, root, name) {
     format: 'cjs',
     platform: 'node',
     write: false,
-    external: ['@deepseek-ai/*'],
     // JSX 经 jsx-runtime 编译（automatic），故两个 specifier 都要指向替身。
     alias: { react: stub, 'react/jsx-runtime': stub, 'react/jsx-dev-runtime': stub },
-    plugins: [stubPlatformPlugin()],
   })
   const file = path.join(root, `${name}.cjs`)
   await writeFile(file, result.outputFiles[0].text, 'utf8')
@@ -130,7 +93,7 @@ function findAll(node, predicate, out = []) {
 }
 
 /**
- * 加载 form.js 的字段规格（它顶层 import 平台原语，故须经打包与外化）。
+ * 加载 form.js 的字段规格（其引用的模型已在本地复制，无需外化）。
  * @param {string} root 临时目录
  * @returns {Promise<object>} form 模块导出
  */
@@ -230,8 +193,10 @@ function renderCard(card, control, options = {}) {
   const form = options.form ?? makeForm()
   const calls = options.calls ?? []
   const edits = options.edits ?? []
+  const t = options.t ?? translate(zh)
   const call = async (endpoint) => {
     calls.push(endpoint)
+    if (endpoint === 'status' && options.statusError) throw new Error('status 读取失败')
     if (endpoint === 'status') return { state: 'idle', port: '8787', tunnel: 'none', token: '', url: '', lastError: '' }
     if (endpoint === 'catalog') {
       return {
@@ -249,6 +214,7 @@ function renderCard(card, control, options = {}) {
   return renderComponent(card.CodexProCard, {
     view: options.view ?? 'page',
     call,
+    t,
     useCodexProForm: () => form,
     edit: (field, text) => edits.push([field, text]),
     resetField: () => {},
@@ -257,30 +223,36 @@ function renderCard(card, control, options = {}) {
   }, control)
 }
 
-test('配置页渲染官方 SettingsForm（配置部分不自带卡片壳）', async () => {
+test('配置页渲染 SettingsForm 形态，且不自带标题/页签/卡片壳', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
     const tree = await renderCard(card, control)
-    const forms = findAll(tree, (el) => el.type === 'SettingsForm')
-    assert.equal(forms.length, 1, '配置部分必须由官方 SettingsForm 承载')
-    // 官方规范：页面的行标题/图标/面包屑由 Plugins 页自绘，插件侧不自带。
+    assert.equal(findAll(tree, (el) => el.props?.className === 'cxp-form').length, 1,
+      '配置部分必须由复制的 SettingsForm 承载')
     assert.equal(findAll(tree, (el) => el.props?.['role'] === 'tablist').length, 0, '不应自带页签栏')
     assert.equal(findAll(tree, (el) => el.type === 'h2').length, 0, '不应自带标题')
+    // 表单根不得写 max-width（宽度归宿主 960px 内容列）。
+    const forms = findAll(tree, (el) => el.props?.className === 'cxp-form')
+    assert.equal(forms[0].props.style, undefined, '表单根不应带内联宽度约束')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('summary 视图只给一行说明，不渲染表单与进程区块', async () => {
+test('summary 视图只给一行说明，不渲染表单与进程区块，也不发 RPC', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
-    const tree = await renderCard(card, control, { view: 'summary' })
-    assert.equal(findAll(tree, (el) => el.type === 'SettingsForm').length, 0)
-    assert.equal(findAll(tree, (el) => el.type === 'section').length, 0, 'summary 不应渲染进程区块')
+    const calls = []
+    const tree = await renderCard(card, control, { view: 'summary', calls })
+    assert.equal(findAll(tree, (el) => el.props?.className === 'cxp-form').length, 0)
+    assert.equal(findAll(tree, (el) => el.props?.className === 'cxp-process').length, 0,
+      'summary 不应渲染进程区块')
+    assert.deepEqual(calls, [], 'summary 不应读取 status/catalog')
+    assert.equal(textOf(tree), zh.summary)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -293,12 +265,10 @@ test('进程区块独立于配置表单（启停不走 configForms）', async ()
     const control = globalThis.__REACT_STUB__
     const calls = []
     const tree = await renderCard(card, control, { calls })
-    // 进程区块是唯一含启停按钮的区块；配置字段按组包在 <section> 里，故不能按 section 计数。
     const buttons = findAll(tree, (el) => el.type === 'button').map(textOf)
-    assert.ok(buttons.includes('启动'), '进程区块应含启动按钮')
+    assert.ok(buttons.includes(zh.start), '进程区块应含启动按钮')
     assert.ok(calls.includes('status'), '进程区块应读 status 端点')
     assert.ok(calls.includes('catalog'), '配置页应读 catalog 端点取候选工作区')
-    // 配置读的不是本插件端点：那两个端点已下线。
     assert.ok(!calls.includes('configure'), '不应调用已下线的 configure 端点')
     assert.ok(!calls.includes('setAuthorization'), '不应调用已下线的 setAuthorization 端点')
   } finally {
@@ -306,23 +276,39 @@ test('进程区块独立于配置表单（启停不走 configForms）', async ()
   }
 })
 
-test('进程区块的启停按钮按状态给出可见禁用态', async () => {
+test('进程区块的启停按钮按状态给出原生 disabled 与可见禁用态', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
     const tree = await renderCard(card, control)
     const buttons = findAll(tree, (el) => el.type === 'button')
-    const labels = buttons.map(textOf)
-    assert.ok(labels.includes('启动'), `应有启动按钮，实际 ${JSON.stringify(labels)}`)
-    assert.ok(labels.includes('停止'), '应有停止按钮')
-    // 未运行时：启动可用、停止禁用；且禁用态必须有可见视觉（不能只 disable）。
-    const start = buttons.find((el) => textOf(el) === '启动')
-    const stop = buttons.find((el) => textOf(el) === '停止')
+    const start = buttons.find((el) => textOf(el) === zh.start)
+    const stop = buttons.find((el) => textOf(el) === zh.stop)
     assert.equal(start.props.disabled, false)
     assert.equal(stop.props.disabled, true)
-    assert.equal(stop.props.style.opacity, 0.4, '禁用必须给出可见禁用态')
-    assert.equal(stop.props.style.cursor, 'default')
+    assert.equal(stop.props.className, 'cxp-button')
+    // 禁用态必须可见：官方 Button 的 opacity:.4 规则被复制进样式表。
+    assert.match(CLIENT_CSS, /\.cxp-button:disabled\{[^}]*opacity:\.4/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('首次状态读取失败时显示未知，不谎报未启动，且禁用启停', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const tree = await renderCard(card, globalThis.__REACT_STUB__, { statusError: true })
+    const tags = findAll(tree, (el) => el.props?.className === 'cxp-tag').map(textOf)
+    assert.ok(tags.includes(zh.statusUnknown), `状态应为未知，实际 ${JSON.stringify(tags)}`)
+    const buttons = findAll(tree, (el) => el.type === 'button')
+    const start = buttons.find((el) => textOf(el) === zh.start)
+    const stop = buttons.find((el) => textOf(el) === zh.stop)
+    assert.equal(start.props.disabled, true, '状态未知时禁止启动')
+    assert.equal(stop.props.disabled, true, '状态未知时禁止停止')
+    assert.ok(findAll(tree, (el) => el.props?.className === 'cxp-error').length >= 1,
+      '读取失败原因应对用户可见')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -344,15 +330,38 @@ test('授权工作区逐项勾选，点击只暂存草稿（不发请求）', as
       ],
     })
 
-    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    const boxes = findAll(tree, (el) => el.type === 'input' && el.props?.type === 'checkbox')
     assert.equal(boxes.length, 2, '每个候选工作区一个复选框')
-    boxes[0].props.onChange(true)
+    boxes[0].props.onChange({ target: { checked: true } })
 
     // 关键断言：复选框只把整份映射序列化成一次 edit，不触发任何 RPC。
     assert.equal(edits.length, 1, '勾选应产生一次草稿编辑')
     assert.equal(edits[0][0], 'authorized', '编辑的是 authorized 字段')
     assert.deepEqual(JSON.parse(edits[0][1]), { 'E:\\a': true }, '草稿应为整份映射的 JSON')
     assert.ok(!calls.includes('setAuthorization'), '勾选不得发请求（草稿由官方模型在保存时写入）')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('勾选后草稿键有序，同一集合总有同一文本（dirty 判定稳定）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+    const edits = []
+    const tree = await renderCard(card, control, {
+      edits,
+      form: makeForm({ authorized: { text: JSON.stringify({ 'E:\\b': true }), overridden: true, invalid: false } }),
+      workspaces: [
+        { path: 'E:\\a', title: 'A', exists: true, authorized: false },
+        { path: 'E:\\b', title: 'B', exists: true, authorized: false },
+      ],
+    })
+    const boxes = findAll(tree, (el) => el.type === 'input' && el.props?.type === 'checkbox')
+    boxes[0].props.onChange({ target: { checked: true } })
+    assert.equal(edits[0][1], JSON.stringify({ 'E:\\a': true, 'E:\\b': true }),
+      '新增项后应按路径排序，而不是把新键追加到末尾')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -366,10 +375,10 @@ test('不存在的目录禁止勾选且带可见标记', async () => {
     const tree = await renderCard(card, control, {
       workspaces: [{ path: 'E:\\gone', title: '已消失', exists: false, authorized: false }],
     })
-    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    const boxes = findAll(tree, (el) => el.type === 'input' && el.props?.type === 'checkbox')
     assert.equal(boxes[0].props.disabled, true, '目录不存在时禁止勾选')
-    const tags = findAll(tree, (el) => el.type === 'Tag')
-    assert.ok(tags.some((el) => textOf(el) === '目录不存在'), '应给出可见原因')
+    const tags = findAll(tree, (el) => el.props?.className === 'cxp-tag')
+    assert.ok(tags.some((el) => textOf(el) === zh.missingDirectory), '应给出可见原因')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -387,7 +396,7 @@ test('草稿里的授权态驱动复选框选中（单一来源）', async () =>
         { path: 'E:\\b', title: 'B', exists: true, authorized: false },
       ],
     })
-    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    const boxes = findAll(tree, (el) => el.type === 'input' && el.props?.type === 'checkbox')
     assert.equal(boxes[0].props.checked, true, '草稿里已授权的项应显示为勾选')
     assert.equal(boxes[1].props.checked, false)
   } finally {
@@ -401,69 +410,54 @@ test('无工作区时给出可行动提示而非空列表', async () => {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
     const tree = await renderCard(card, control, { workspaces: [] })
-    assert.equal(findAll(tree, (el) => el.type === 'Checkbox').length, 0)
+    assert.equal(findAll(tree, (el) => el.type === 'input' && el.props?.type === 'checkbox').length, 0)
     const texts = findAll(tree, (el) => textOf(el) !== '').map(textOf).join('\n')
-    assert.ok(texts.includes('还没有工作区'), '应说明如何让工作区出现')
+    assert.ok(texts.includes(zh.workspacesEmpty), '应说明如何让工作区出现')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('两级分隔：组间比组内更醒目，且分组标题靠字重立层级', async () => {
+test('分组结构与两级分隔：标题靠字重，组间比组内更醒目', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
     const tree = await renderCard(card, control)
 
-    // 分组标题：h3（官方 SubagentCard 的 section + h3 形态）
     const heads = findAll(tree, (el) => el.type === 'h3')
     const headTexts = heads.map(textOf)
-    assert.ok(headTexts.includes('网络接入'), `应有「网络接入」分组，实际 ${JSON.stringify(headTexts)}`)
-    assert.ok(headTexts.includes('权限'), '应有「权限」分组')
-    assert.ok(headTexts.includes('授权工作区'), '应有「授权工作区」分组')
-
-    // 层级靠字重而非字号（官方 .heading：13px/600 对字段标签 13px/500）。
-    // 先前用 14px/500 会让标题与字段标签几乎同重，整片看起来是平的。
-    for (const head of heads) {
-      assert.equal(head.props.style.fontSize, '13px', '分组标题应为 13px（官方值）')
-      assert.equal(head.props.style.fontWeight, 600, '分组标题应为 600 字重，靠它和字段标签 500 拉开层级')
+    for (const title of [zh.processTitle, zh.networkTitle, zh.permissionTitle, zh.workspacesTitle]) {
+      assert.ok(headTexts.includes(title), `应有「${title}」标题，实际 ${JSON.stringify(headTexts)}`)
     }
 
-    // 两级分隔线必须深浅不同，否则用户分不清「组与组」和「字段与字段」。
-    const lines = findAll(tree, (el) => typeof el.props?.style?.borderTop === 'string'
-      && el.props.style.borderTop.includes('0.5px'))
-    const groupLines = lines.filter((el) => el.props.style.borderTop.includes('--dsw-alias-border-l4'))
-    const fieldLines = lines.filter((el) => el.props.style.borderTop.includes('--dsw-alias-border-l2'))
-    assert.ok(groupLines.length >= 2, `组间分隔应有两条以上（除首组），实际 ${groupLines.length}`)
-    assert.ok(fieldLines.length >= 2, `组内字段分隔应有两条以上，实际 ${fieldLines.length}`)
-
-    // 首组不画顶线：避免与页面上方内容割裂。
-    const sections = findAll(tree, (el) => el.type === 'section' && el.props?.['aria-labelledby'])
-    assert.equal(sections.length, 3, '应恰好三个分组')
-    assert.notEqual(sections[0].props.style.borderTop, sections[1].props.style.borderTop,
-      '首组不画顶线，其余组画——故首组与第二组的样式必须不同')
-
-    // section 与标题经 aria-labelledby 关联（官方 SubagentCard 同形）。
+    // 分组 section 与标题经 aria-labelledby 关联（官方 SubagentCard 同形）。
+    const sections = findAll(tree, (el) => el.type === 'section' && el.props?.className === 'cxp-section')
+    assert.equal(sections.length, 3, '应恰好三个配置分组')
     for (const section of sections) {
       assert.equal(typeof section.props['aria-labelledby'], 'string')
       const titled = heads.some((head) => head.props.id === section.props['aria-labelledby'])
       assert.ok(titled, `分组 section 应指向存在的标题 id，实际 ${section.props['aria-labelledby']}`)
     }
+
+    // 层级与两级分隔由复制来的 CSS 承担。
+    assert.match(CLIENT_CSS, /\.cxp-section-head h3\{[^}]*font-size:13px;[^}]*font-weight:600/)
+    assert.match(CLIENT_CSS, /\.cxp-section \+ \.cxp-section\{border-top:\.5px solid var\(--dsw-alias-border-l4\)\}/)
+    assert.match(CLIENT_CSS, /\.cxp-field \+ \.cxp-field\{border-top:\.5px solid var\(--dsw-alias-border-l2\)\}/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('每个字段都有可展开的详细引导（点「?」）', async () => {
+test('每个字段都有可展开的详细引导（点 info）', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
     const control = globalThis.__REACT_STUB__
     const tree = await renderCard(card, control)
 
-    const helpButtons = findAll(tree, (el) => el.props?.['aria-label'] === '字段说明')
-    // tunnel / hostname(可选) / port / bash / write / authorized —— 至少 5 个常驻字段。
+    const helpButtons = findAll(tree, (el) => el.props?.className === 'cxp-help-button')
+    // tunnel / hostname(条件) / port / bash / write / workspaces 分组 —— 至少 5 个常驻入口。
     assert.ok(helpButtons.length >= 5, `每个字段都应有帮助按钮，实际 ${helpButtons.length}`)
     assert.ok(helpButtons.every((el) => el.props['aria-expanded'] === false), '默认应折叠')
     assert.ok(helpButtons.every((el) => typeof el.props['aria-controls'] === 'string'), '应与说明区经 aria-controls 关联')
@@ -472,15 +466,12 @@ test('每个字段都有可展开的详细引导（点「?」）', async () => {
     assert.equal(findAll(tree, (el) => el.props?.['role'] === 'region').length, 0, '默认不应渲染说明正文')
 
     // 点开第一个帮助按钮，说明应展开。
-    const before = control.effects.length
     helpButtons[0].props.onClick()
     const expanded = await renderCard(card, control)
     const regions = findAll(expanded, (el) => el.props?.['role'] === 'region')
     assert.ok(regions.length >= 1, '点开后应渲染说明区')
-    // 引导文案要够详细：tunnel 的说明逐项解释了各取值，不该只有一句话。
     const body = regions.map((el) => findAll(el, (node) => textOf(node) !== '').map(textOf).join(' ')).join(' ')
     assert.ok(body.length > 60, `说明应足够详细，实际 ${body.length} 字`)
-    assert.ok(before >= 0)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -495,53 +486,54 @@ test('表单不可写时禁用配置控件，但进程区块仍可读', async ()
       form: makeForm({ writable: false }),
       workspaces: [{ path: 'E:\\a', title: 'A', exists: true, authorized: false }],
     })
-    const boxes = findAll(tree, (el) => el.type === 'Checkbox')
+    const boxes = findAll(tree, (el) => el.type === 'input' && el.props?.type === 'checkbox')
     assert.equal(boxes[0].props.disabled, true, '只读时配置控件应禁用')
-    // 进程状态不依赖设置面：只读时仍应渲染并读到状态（按启停按钮判定，不按 section 计数）。
     const buttons = findAll(tree, (el) => el.type === 'button').map(textOf)
-    assert.ok(buttons.includes('启动'), '进程区块仍应渲染')
+    assert.ok(buttons.includes(zh.start), '进程区块仍应渲染')
+    const readonly = findAll(tree, (el) => el.props?.className === 'cxp-readonly')
+    assert.equal(readonly.length, 1, '只读时应显示官方 readOnly 提示')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('全圆胶囊必须成对声明 corner-shape: round（官方 Pill/Tag 同款）', async () => {
-  // 宿主 corner-shape.css 用 *,*::before,*::after 把圆角统一为 superellipse(1.5)，
-  // 会把未声明 corner-shape: round 的胶囊两端压成方角（Chrome 139+ 可见）。
-  const theme = await import('../src/client/theme.js')
-  assert.equal(theme.pillBase.borderRadius, '999px')
-  assert.equal(theme.pillBase.cornerShape, 'round', '全圆角必须配 cornerShape: round，否则方角化')
+test('SettingsForm 的保存键遵循 !dirty || invalid || saving 禁用语义', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
+  try {
+    const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
+    const control = globalThis.__REACT_STUB__
+
+    /** 取保存键。 */
+    const saveOf = (tree) => findAll(tree, (el) => el.type === 'button' && el.props?.className === 'cxp-save')[0]
+
+    const clean = await renderCard(card, control)
+    assert.equal(saveOf(clean).props.disabled, true, '未修改时保存禁用')
+    assert.equal(textOf(saveOf(clean)), zh.save)
+
+    const dirty = await renderCard(card, control, { form: makeForm({ dirty: true }) })
+    assert.equal(saveOf(dirty).props.disabled, false, '有改动且合法时可保存')
+
+    const invalid = await renderCard(card, control, { form: makeForm({ dirty: true, invalid: true }) })
+    assert.equal(saveOf(invalid).props.disabled, true, '非法草稿禁用保存')
+
+    const saving = await renderCard(card, control, { form: makeForm({ dirty: true, saving: true }) })
+    assert.equal(saveOf(saving).props.disabled, true, '保存中禁用保存')
+    assert.equal(textOf(saveOf(saving)), zh.saving, '保存中文案固定为「保存中…」')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('下拉框外观由 div 外框承担，select 本体透明（走查事故 2026-09-30）', async () => {
   // 事故：用户环境里 `appearance: none` 之后，`<select>` 自身的 border 直边一个像素都不画
   // （截图像素扫描：顶/底边暗像素 0/191，仅剩圆角弧），而同一页 div 与 input 的边框四边完整。
   // 故外框移到 div，select 只作透明交互层——用经证据证明可靠的元素来画框。
-  const theme = await import('../src/client/theme.js')
+  assert.match(CLIENT_CSS, /\.cxp-select-box\{[^}]*border:\.5px solid var\(--dsw-alias-border-l4\)/)
+  assert.match(CLIENT_CSS, /\.cxp-select-box\{[^}]*height:34px/)
+  assert.match(CLIENT_CSS, /\.cxp-select\{[^}]*appearance:none/)
+  assert.match(CLIENT_CSS, /\.cxp-select\{[^}]*border:0/)
+  assert.match(CLIENT_CSS, /\.cxp-select\{[^}]*padding:0 32px 0 12px/)
 
-  // 外框：div 承担描边/圆角/底色/箭头。
-  assert.ok(theme.selectBoxStyle.border.startsWith(`${theme.HAIRLINE} `),
-    '外框应有 0.5px 描边')
-  assert.match(theme.selectBoxStyle.borderRadius, /^var\(--dsw-radius-/,
-    '圆角走 token')
-  assert.equal(theme.selectBoxStyle.height, '34px', '外框高度对齐官方 .input')
-  assert.equal(theme.selectBoxStyle.boxSizing, 'border-box')
-  assert.match(theme.selectBoxStyle.backgroundImage, /^url\("data:image\/svg\+xml/,
-    '箭头画在外框上，不依赖 select 自身绘制')
-  assert.equal(theme.selectBoxStyle.backgroundRepeat, 'no-repeat')
-  assert.equal(theme.selectBoxStyle.backgroundSize, '12px 12px')
-
-  // select 本体：无边框无底色，仍须 appearance:none（否则聚焦态原生绘制会与外框叠加）。
-  assert.equal(theme.selectControlStyle.appearance, 'none')
-  assert.equal(theme.selectControlStyle.border, 'none', 'select 自身不再画边框')
-  // 右内边距给外框上的箭头留位（用 padding 简写表达：上 右 下 左）。
-  const pad = String(theme.selectControlStyle.padding).split(/\s+/)
-  assert.ok(Number.parseInt(pad[1], 10) >= 24,
-    `右内边距要给外框箭头留位，实际 padding=${theme.selectControlStyle.padding}`)
-  // 旧的单元素方案不应再被使用：它正是出问题的那条路径。
-  assert.equal(theme.selectStyle, undefined, '不应再导出把 border 画在 select 上的 selectStyle')
-
-  // 端到端：三个下拉框都被 SelectBox 包裹（div 外框 + 内层 select），且不带内联 border。
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-ui-'))
   try {
     const card = await load(path.join(here, '..', 'src', 'client', 'card.jsx'), root, 'card')
@@ -549,28 +541,31 @@ test('下拉框外观由 div 外框承担，select 本体透明（走查事故 2
     const selects = findAll(tree, (el) => el.type === 'select')
     assert.ok(selects.length >= 3, `应有三个下拉框，实际 ${selects.length}`)
     for (const select of selects) {
-      assert.equal(select.props.style.border, 'none', 'select 自身不应画边框')
-      assert.equal(select.props.style.appearance, 'none')
+      assert.equal(select.props.className, 'cxp-select')
+      assert.equal(select.props.style, undefined, '外观由样式表承担，不写内联样式')
     }
-    // 外框 div 必须真实存在并带描边。
-    const boxes = findAll(tree, (el) => el.type === 'div'
-      && typeof el.props?.style?.border === 'string'
-      && el.props.style.border.includes('0.5px solid')
-      && el.props.style.backgroundImage)
+    const boxes = findAll(tree, (el) => el.props?.className === 'cxp-select-box')
     assert.ok(boxes.length >= 3, `每个下拉框都应有一个 div 外框，实际 ${boxes.length}`)
+    assert.ok(findAll(tree, (el) => el.props?.className === 'cxp-chevron').length >= 3,
+      '箭头画在外框上，不依赖 select 自身绘制')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('中性实线边框一律 0.5px，半径走 token（无离格字面量）', async () => {
-  const theme = await import('../src/client/theme.js')
-  assert.equal(theme.HAIRLINE, '0.5px')
-  assert.ok(theme.cardStyle.border.startsWith(`${theme.HAIRLINE} `),
-    `卡描边应为 0.5px，实际 ${theme.cardStyle.border}`)
-  assert.equal(theme.dividerStyle.height, theme.HAIRLINE)
-  assert.match(theme.cardStyle.borderRadius, /^var\(--dsw-radius-/,
-    '卡半径必须走 --dsw-radius-* token（v0.1.7 起离格字面量会被宿主守卫拒斥）')
+test('中性实线边框一律 0.5px，半径走 token，样式无字面颜色', async () => {
+  // 中性描边应为 0.5px；1px 只允许出现在 save 的透明边框（官方 SettingsForm 同款）。
+  assert.doesNotMatch(CLIENT_CSS, /border(?:-[a-z]+)?:1px solid (?!transparent)/,
+    '中性描边应为 0.5px，不得使用 1px')
+  assert.match(CLIENT_CSS, /\.cxp-field\{[^}]*gap:6px;[^}]*padding:12px 0/)
+  assert.match(CLIENT_CSS, /\.cxp-input\{[^}]*height:34px/)
+  assert.match(CLIENT_CSS, /\.cxp-save\{[^}]*padding:5px 14px/)
+  assert.match(CLIENT_CSS, /\.cxp-footer\{[^}]*padding-top:16px/)
+  assert.match(CLIENT_CSS, /border-radius:var\(--dsw-radius-md\)/)
+  // 无字面颜色（#hex / rgb / hsl / 颜色名）；所有颜色必须来自 token。
+  assert.doesNotMatch(CLIENT_CSS, /#[0-9a-fA-F]{3,8}\b|(?:rgb|hsl)a?\(/)
+  // 表单根不设宽度上限。
+  assert.doesNotMatch(CLIENT_CSS, /\.cxp-form\{[^}]*max-width/)
 })
 
 test('隧道名输入框只在 cloudflare-named 下出现（条件字段）', async () => {
@@ -580,7 +575,7 @@ test('隧道名输入框只在 cloudflare-named 下出现（条件字段）', as
     const control = globalThis.__REACT_STUB__
 
     /** 取当前树里的全部文本框占位符，用于判定字段是否出现。 */
-    const placeholders = (tree) => findAll(tree, (el) => el.type === 'input')
+    const placeholders = (tree) => findAll(tree, (el) => el.type === 'input' && el.props?.type === 'text')
       .map((el) => el.props?.placeholder)
       .filter(Boolean)
 

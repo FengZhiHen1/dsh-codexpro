@@ -1,342 +1,190 @@
-// panels — 配置表单里的字段控件：参数字段与授权工作区。
+// panels — 配置表单里的字段分组：网络接入、权限与授权工作区。
 //
-// 边界：控件只报告用户意图（onEdit / onToggle），不自行写盘——写入由官方
-// SettingsFormModel 在「保存」时一次性完成。
-// 官方字段原语只有文本（SettingsValueField）与 write-only 密钥（SettingsSecretField），
-// 没有 select / boolean，故 select、复选框与分组标题在此自绘，但草稿仍走官方模型的
-// edit / resetField（knowledge/client/15 §4）。
-// 几何逐项对齐官方 `.field`（padding 12px 0 / gap 6px / label 500 字重 / 相邻分隔线）；
-// 相邻分隔线官方用 CSS 相邻选择器，内联样式表达不了，故由 first 参数显式控制。
-// 帮助文案的事实来源：codexpro `--help`（本机 0.30.2）与其 profile 字段，非推测。
-// 参考：knowledge/client/15 §4；官方 ui-settings-subagent 的 SubagentLimitsFields.tsx。
+// 边界：控件只报告用户意图（onEdit / onReset），不自行写盘；写入由 settings-model.js
+// 在「保存」时一次性完成。字段几何与帮助形态来自官方 SettingsValueField。
+// 参考：knowledge/v0.2.1-rc.2/05-插件工程约定.md「插件设置页」「页面宽度与列布局」。
 
-import { createElement as h, useState } from 'react'
-import { Checkbox, IconInfoOutlineRegular, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { createElement as h } from 'react'
 import { BASH_MODES, HOSTNAME_REQUIRED_TUNNELS, TUNNEL_MODES, WRITE_MODES } from '../core/codexpro.js'
-import { HAIRLINE, R, T, captionText, fieldBox, fieldLabel, fieldStyle, groupBox, groupTitle, hintText, selectBoxStyle, selectControlStyle } from './theme.js'
-import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, needsTunnelName } from './form.js'
-
-/** tunnel 取值的下拉文案（取值来自 core 的权威词表）。 */
-const TUNNEL_LABELS = {
-  none: 'none — 仅本地，无公网入口',
-  ngrok: 'ngrok — 稳定 dev domain',
-  cloudflare: 'cloudflare — 快速隧道（URL 每次重启都变）',
-  'cloudflare-named': 'cloudflare-named — 具名隧道（URL 稳定）',
-  tailscale: 'tailscale — Funnel',
-}
+import { Checkbox, Tag } from './controls.jsx'
+import { SettingsSection, SettingsSelectField, SettingsValueField } from './fields.jsx'
+import { AUTHORIZED, BASH_MODE, PORT, TUNNEL_HOSTNAME, TUNNEL_MODE, TUNNEL_NAME, WRITE_MODE, needsTunnelName, normalizeAuthorized } from './form.js'
 
 /** 需要公网 hostname 的 tunnel 取值（权威定义在 core/codexpro.js）。 */
 const NEEDS_HOSTNAME = new Set(HOSTNAME_REQUIRED_TUNNELS)
 
+/** tunnel 取值 → 字典键。 */
+const TUNNEL_LABEL_KEY = Object.freeze({
+  none: 'tunnelNone',
+  ngrok: 'tunnelNgrok',
+  cloudflare: 'tunnelCloudflare',
+  'cloudflare-named': 'tunnelCloudflareNamed',
+  tailscale: 'tunnelTailscale',
+})
+
 /**
- * 解释性帮助文本（点「?」展开）。文案取自 codexpro `--help` 与其 profile 语义。
- * @type {Readonly<Record<string, string[]>>}
+ * 文本字段的公共副本，避免每处重复五个标签键。
+ * @param {object} field 字段状态
+ * @param {string} overriddenLabel 覆盖标记文案
+ * @param {string} resetLabel 重置文案
+ * @returns {object} 可直接展开到 SettingsValueField 的公共属性
  */
-const HELP = {
-  tunnelMode: [
-    '决定 ChatGPT 用什么地址连到本机 codexpro。默认 none，只在你这台机器上可用。',
-    'none：不产生公网入口，只在本机浏览器/客户端可用。最安全的默认值。',
-    'cloudflare：免配置快速隧道，但每次重启进程都会换一个新 URL，需要重新贴给 ChatGPT。适合临时试用。',
-    'cloudflare-named：需先在 Cloudflare 建好具名隧道，URL 固定不变。适合长期使用。',
-    'ngrok：用 ngrok 的固定 dev domain，URL 稳定；需本机已安装并登录 ngrok。',
-    'tailscale：走 Tailscale Funnel，适合已有 Tailscale 网络的场景。',
-    '注意：除 none 外都会把这个本地服务暴露到公网，请确保已设置可信的访问 token。',
-  ],
-  tunnelHostname: [
-    '公网上面向 ChatGPT 的那个域名，必须与所选 tunnel 方式对应：',
-    'ngrok：形如 your-domain.ngrok-free.dev（ngrok 后台里的 dev domain）。',
-    'cloudflare-named：你在 Cloudflare 为该隧道绑定的自定义域名。',
-    'tailscale：形如 your-device.your-tailnet.ts.net（Tailscale 分配的节点名）。',
-    '填错不会立刻报错，但 ChatGPT 会连不上——它解析的就是这个域名。',
-  ],
-  tunnelName: [
-    '你在 Cloudflare 建好的那条具名隧道的名字（cloudflared 侧的 tunnel name / UUID），不是域名。',
-    '创建方式：在 Cloudflare Zero Trust 后台新建一条 Tunnel，名字随你取（如 codexpro），建好后把它填在这里。',
-    '注意区分两个值：隧道名是 Cloudflare 上的标识，公网 hostname 是外部访问用的域名——两个都要填。',
-    '不填的话 codexpro 会直接拒绝启动并报「--tunnel-name ... is required」。',
-    '如果不用具名隧道，把 Tunnel 方式换成 none 或 cloudflare 即可（那样这个字段会消失）。',
-  ],
-  port: [
-    'codexpro 在本机监听的端口，默认 8787。',
-    '只有本机端口冲突（例如别的程序已占用 8787）时才需要改。',
-    '取值必须是 1–65535 的整数。改为非默认值后，请确认没有其他服务占用该端口。',
-  ],
-  bashMode: [
-    '决定 ChatGPT 能在你的项目里执行什么命令。',
-    'off：完全禁止执行命令，只做文件读写。最保守。',
-    'safe：允许常见的检查与测试类命令（如查看文件、跑测试），运行时按白名单筛选。',
-    'full：允许任意 shell 命令，权限等同于你自己在终端里操作。仅在完全信任的仓库里使用。',
-    '这个开关直接决定风险大小：不确定时保持 safe。',
-  ],
-  writeMode: [
-    '决定 ChatGPT 能否改动你的文件。',
-    'off：只读，禁止任何写入。',
-    'handoff：不改动文件，而是把实现计划写成 .ai-bridge 交接文件，交给本地的实现 agent 去做。',
-    'workspace：允许在已授权的目录内直接读写文件。最常见的用法。',
-  ],
-  authorized: [
-    '勾选哪些工作区允许 ChatGPT 访问。未勾选的目录它看不到。',
-    '只有 DSH 当前已打开的工作区会出现在这里——先在 DSH 里打开项目，再回来勾选。',
-    '标记「目录不存在」的项无法勾选：codexpro 对不存在的授权根会直接拒绝启动，故本插件会跳过它。',
-    '授权一个目录即允许 ChatGPT 在其中读写并执行受控命令（受上面两个开关约束），请按最小必要范围勾选。',
-    '改动需要重启进程才生效。',
-  ],
+function commonField(field, overriddenLabel, resetLabel) {
+  return {
+    text: field.text,
+    overridden: field.overridden,
+    invalid: field.invalid,
+    overriddenLabel,
+    resetLabel,
+  }
 }
 
 /**
- * 字段帮助按钮与展开区（复刻官方 SettingsValueField 的 help 形态）。
- * @param {object} props 组件属性
- * @param {string} props.id 帮助区 id（供 aria-controls 关联）
- * @param {string[]} props.lines 帮助段落
- * @returns {object} React 元素
- */
-function Help({ id, lines }) {
-  const [open, setOpen] = useState(false)
-  return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '4px' } }, [
-    h('button', {
-      key: 'btn',
-      type: 'button',
-      'aria-label': '字段说明',
-      'aria-expanded': open,
-      'aria-controls': id,
-      onClick: () => setOpen(!open),
-      style: {
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flex: 'none',
-        width: '24px',
-        height: '24px',
-        padding: 0,
-        border: 0,
-        borderRadius: R.sm,
-        background: open ? T.bgLayer4 : 'none',
-        color: open ? T.labelSecondary : T.labelTertiary,
-        cursor: 'pointer',
-      },
-    }, h(IconInfoOutlineRegular, { size: 12 })),
-    open
-      ? h('div', {
-        key: 'body',
-        id,
-        role: 'region',
-        'aria-label': '字段说明',
-        style: { flex: '1 1 100%', paddingTop: '4px' },
-      }, lines.map((line, index) => h('p', {
-        key: index,
-        style: { margin: index === 0 ? 0 : '6px 0 0', fontSize: '12px', color: T.labelSecondary, lineHeight: '1.6' },
-      }, line)))
-      : null,
-  ])
-}
-
-/**
- * 自绘字段的外框：官方 `.field` 几何 + 标签行（含帮助）+ 控件 + 说明。
- * @param {object} props 组件属性
- * @param {string} props.label 标签
- * @param {string} [props.hint] 控件下方一行说明
- * @param {string[]} [props.help] 「?」展开的详细说明
- * @param {boolean} [props.first] 是否该组首个字段（首个不画分隔线）
- * @param {object} props.children 控件
- * @returns {object} React 元素
- */
-function FieldBox({ label, hint, help, first, children }) {
-  const helpId = `codexpro-help-${label}`
-  return h('div', { style: fieldBox(first) }, [
-    h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } }, [
-      h('span', { key: 'l', style: fieldLabel }, label),
-      help ? h(Help, { key: 'help', id: helpId, lines: help }) : null,
-    ]),
-    children,
-    hint ? h('p', { key: 'hint', style: hintText }, hint) : null,
-  ])
-}
-
-/**
- * 分组：官方 `SubagentCard` 的 section 形态（h3 标题 + 内容 + 上下分节留白）。
- *
- * 标题用 id + aria-labelledby 与 section 关联（官方同形），使读屏能报出「哪个分组的字段」。
- * `trailing` 放在标题同一行（官方 `.groupHead` 的计数位），用于「已选 N / M」这类计数。
- * @param {object} props 组件属性
- * @param {string} props.id 分组 id（用于标题与 section 的 aria 关联）
- * @param {string} props.title 标题
- * @param {string} [props.note] 一句话说明
- * @param {object} [props.trailing] 标题行右侧的附加内容（如计数）
- * @param {boolean} [props.first] 是否首个分组（首个不画顶线）
- * @returns {object} React 元素
- */
-function Group({ id, title, note, trailing, first, children }) {
-  const headingId = `codexpro-group-${id}`
-  return h('section', { style: groupBox(first), 'aria-labelledby': headingId }, [
-    h('div', { key: 'head', style: { display: 'flex', alignItems: 'baseline', gap: '8px' } }, [
-      h('h3', { key: 't', id: headingId, style: groupTitle }, title),
-      trailing ?? null,
-    ]),
-    note ? h('p', { key: 'n', style: { ...hintText, margin: '2px 0 0' } }, note) : null,
-    children,
-  ])
-}
-
-/**
- * 网络接入组：tunnel 方式与（按取值条件出现的）hostname、隧道名、端口。
- *
- * 抽为独立函数：三个条件字段（hostname / 隧道名按 tunnel 取值显隐）+ 端口，
- * 留在 OptionsFields 内会把那个函数体撑到触发复杂度告警，而这里没有额外分支。
+ * 网络接入组：tunnel 方式与端口并排；需要时再出现 hostname 与隧道名。
  * @param {object} props 组件属性
  * @param {object} props.fields 各字段的官方状态
  * @param {boolean} props.disabled 是否禁用
  * @param {Function} props.onEdit 暂存草稿
+ * @param {Function} props.onReset 暂存重置
+ * @param {Function} props.t 翻译函数
  * @returns {object} React 元素
  */
-function NetworkGroup({ fields, disabled, onEdit }) {
+function NetworkGroup({ fields, disabled, onEdit, onReset, t }) {
   const needsHost = NEEDS_HOSTNAME.has(fields.tunnelMode.text)
   const needsName = needsTunnelName(fields.tunnelMode.text)
-  return h(Group, { id: 'network', title: '网络接入', first: true, note: 'ChatGPT 通过哪个地址连到本机。改完需重启进程才生效。' }, [
-    h(FieldBox, {
-      key: 'tunnel',
-      label: 'Tunnel 方式',
-      first: true,
-      hint: '默认 none：只在本机可用，不暴露到公网',
-      help: HELP.tunnelMode,
-    }, h(SelectBox, {
-      width: '320px',
-      disabled,
-      value: fields.tunnelMode.text,
-      onChange: (next) => onEdit(TUNNEL_MODE, next),
-      options: TUNNEL_MODES.map((mode) => ({ value: mode, label: TUNNEL_LABELS[mode] ?? mode })),
-    })),
-    needsHost
-      ? h(FieldBox, {
-        key: 'hostname',
-        label: '公网 hostname',
-        hint: '该 tunnel 方式必需，codexpro 亦强制要求',
-        help: HELP.tunnelHostname,
-      }, h('input', {
-        type: 'text',
-        value: fields.tunnelHostname.text,
+  const overriddenLabel = t('overridden')
+  const resetLabel = t('reset')
+  return h(SettingsSection, {
+    id: 'codexpro-network',
+    title: t('networkTitle'),
+    note: t('networkNote'),
+  }, [
+    h('div', { key: 'basic', className: 'cxp-grid' }, [
+      h(SettingsSelectField, {
+        key: 'tunnel',
+        id: 'codexpro-tunnel-mode',
+        label: t('tunnelMode'),
+        hint: t('tunnelModeHint'),
+        help: { label: t('helpTunnelModeLabel'), content: t('helpTunnelModeContent') },
+        value: fields.tunnelMode.text,
+        options: TUNNEL_MODES.map((mode) => ({ value: mode, label: t(TUNNEL_LABEL_KEY[mode] ?? mode) })),
+        overridden: fields.tunnelMode.overridden,
+        invalid: fields.tunnelMode.invalid,
+        overriddenLabel,
+        resetLabel,
         disabled,
-        placeholder: 'your-domain.ngrok-free.dev',
-        onChange: (event) => onEdit(TUNNEL_HOSTNAME, event.target.value),
-        style: { ...fieldStyle, maxWidth: '320px' },
-      }))
-      : null,
-    needsName
-      ? h(FieldBox, {
-        key: 'tunnelName',
-        label: 'Cloudflare 隧道名',
-        hint: 'Cloudflare 后台里那条具名隧道的名字；与上面的 hostname 是两个不同的值',
-        help: HELP.tunnelName,
-      }, h('input', {
-        type: 'text',
-        value: fields.tunnelName.text,
+        onEdit: (next) => onEdit(TUNNEL_MODE, next),
+        onReset: () => onReset(TUNNEL_MODE),
+      }),
+      h(SettingsValueField, {
+        key: 'port',
+        id: 'codexpro-port',
+        label: t('port'),
+        hint: fields.port.invalid ? t('portInvalid') : t('portHint'),
+        help: { label: t('helpPortLabel'), content: t('helpPortContent') },
+        ...commonField(fields.port, overriddenLabel, resetLabel),
+        invalidLabel: t('portInvalid'),
         disabled,
-        placeholder: 'codexpro',
-        'aria-invalid': fields.tunnelName.invalid ? true : undefined,
-        onChange: (event) => onEdit(TUNNEL_NAME, event.target.value),
-        style: {
-          ...fieldStyle,
-          maxWidth: '320px',
-          borderColor: fields.tunnelName.invalid ? T.error : T.borderL4,
-        },
-      }), fields.tunnelName.invalid
-        ? h('p', { key: 'bad', style: { ...hintText, color: T.error } }, '隧道名不能超过 128 个字符')
-        : null)
+        numeric: true,
+        placeholder: '8787',
+        onEdit: (text) => onEdit(PORT, text),
+        onReset: () => onReset(PORT),
+      }),
+    ]),
+    needsHost || needsName
+      ? h('div', { key: 'tunnel-extra', className: 'cxp-grid' }, [
+        needsHost
+          ? h(SettingsValueField, {
+            key: 'hostname',
+            id: 'codexpro-tunnel-hostname',
+            label: t('tunnelHostname'),
+            hint: t('tunnelHostnameHint'),
+            help: { label: t('helpTunnelHostnameLabel'), content: t('helpTunnelHostnameContent') },
+            ...commonField(fields.tunnelHostname, overriddenLabel, resetLabel),
+            disabled,
+            placeholder: 'your-domain.ngrok-free.dev',
+            onEdit: (text) => onEdit(TUNNEL_HOSTNAME, text),
+            onReset: () => onReset(TUNNEL_HOSTNAME),
+          })
+          : null,
+        needsName
+          ? h(SettingsValueField, {
+            key: 'tunnel-name',
+            id: 'codexpro-tunnel-name',
+            label: t('tunnelName'),
+            hint: t('tunnelNameHint'),
+            help: { label: t('helpTunnelNameLabel'), content: t('helpTunnelNameContent') },
+            ...commonField(fields.tunnelName, overriddenLabel, resetLabel),
+            invalidLabel: t('tunnelNameInvalid'),
+            disabled,
+            placeholder: 'codexpro',
+            onEdit: (text) => onEdit(TUNNEL_NAME, text),
+            onReset: () => onReset(TUNNEL_NAME),
+          })
+          : null,
+      ])
       : null,
-    h(FieldBox, {
-      key: 'port',
-      label: '本地端口',
-      hint: '仅在本机端口冲突时才需修改',
-      help: HELP.port,
-    }, h('input', {
-      type: 'text',
-      inputMode: 'numeric',
-      value: fields.port.text,
-      disabled,
-      placeholder: '8787',
-      'aria-invalid': fields.port.invalid ? true : undefined,
-      onChange: (event) => onEdit(PORT, event.target.value),
-      style: {
-        ...fieldStyle,
-        maxWidth: '140px',
-        borderColor: fields.port.invalid ? T.error : T.borderL4,
-      },
-    }), fields.port.invalid ? h('p', { key: 'bad', style: { ...hintText, color: T.error } }, '端口需为 1–65535 的整数') : null),
   ])
 }
 
 /**
- * 下拉框：外框由 div 绘制，select 本体透明（见 theme.js 的 selectBoxStyle 说明）。
- *
- * 走查事故 2026-09-30：用户环境里 `<select>` 自身的 border 直边一个像素都不画
- * （只剩圆角弧），而 div 与 input 的边框完整。故外框移到 div，select 只作交互层。
+ * 权限组：bash 模式与写入模式并排。
  * @param {object} props 组件属性
- * @param {string} props.width 外框宽度（如 '320px'）
+ * @param {object} props.fields 各字段的官方状态
  * @param {boolean} props.disabled 是否禁用
- * @param {string} props.value 当前取值
- * @param {Function} props.onChange 取值变化回调（收到新值）
- * @param {Array<{value: string, label: string}>} props.options 选项
+ * @param {Function} props.onEdit 暂存草稿
+ * @param {Function} props.onReset 暂存重置
+ * @param {Function} props.t 翻译函数
  * @returns {object} React 元素
  */
-function SelectBox({ width, disabled, value, onChange, options }) {
-  return h('div', {
-    style: {
-      ...selectBoxStyle,
-      width,
-      maxWidth: '100%',
-      opacity: disabled ? 0.5 : 1,
-    },
-  }, h('select', {
-    value,
+function PermissionGroup({ fields, disabled, onEdit, onReset, t }) {
+  const overriddenLabel = t('overridden')
+  const resetLabel = t('reset')
+  const optionField = (key, field, labelKey, hintKey, helpLabelKey, helpContentKey) => h(SettingsSelectField, {
+    key,
+    id: `codexpro-${key}`,
+    label: t(labelKey),
+    hint: t(hintKey),
+    help: { label: t(helpLabelKey), content: t(helpContentKey) },
+    value: field.text,
+    options: (key === 'bash' ? BASH_MODES : WRITE_MODES).map((mode) => ({ value: mode, label: mode })),
+    overridden: field.overridden,
+    invalid: field.invalid,
+    overriddenLabel,
+    resetLabel,
     disabled,
-    onChange: (event) => onChange(event.target.value),
-    style: { ...selectControlStyle, cursor: disabled ? 'default' : 'pointer' },
-  }, options.map((item) => h('option', { key: item.value, value: item.value }, item.label))))
+    onEdit: (next) => onEdit(key === 'bash' ? BASH_MODE : WRITE_MODE, next),
+    onReset: () => onReset(key === 'bash' ? BASH_MODE : WRITE_MODE),
+  })
+  return h(SettingsSection, {
+    id: 'codexpro-permission',
+    title: t('permissionTitle'),
+    note: t('permissionNote'),
+  }, h('div', { className: 'cxp-grid' }, [
+    optionField('bash', fields.bashMode, 'bashMode', 'bashModeHint', 'helpBashModeLabel', 'helpBashModeContent'),
+    optionField('write', fields.writeMode, 'writeMode', 'writeModeHint', 'helpWriteModeLabel', 'helpWriteModeContent'),
+  ]))
 }
 
 /**
  * 参数字段组：网络 / 权限两组。
  * @param {object} props 组件属性
- * @param {object} props.fields 各字段的官方状态（text/overridden/invalid）
+ * @param {object} props.fields 各字段的官方状态
  * @param {boolean} props.disabled 是否禁用
  * @param {Function} props.onEdit 暂存草稿
- * @param {Function} props.onReset 暂存清除
+ * @param {Function} props.onReset 暂存重置
+ * @param {Function} props.t 翻译函数
  * @returns {object} React 元素
  */
-export function OptionsFields({ fields, disabled, onEdit, onReset }) {
+export function OptionsFields({ fields, disabled, onEdit, onReset, t }) {
   return h('div', null, [
-    h(NetworkGroup, { key: 'net', fields, disabled, onEdit }),
-    h(Group, { key: 'perm', id: 'permission', title: '权限', note: '决定 ChatGPT 能在你的项目里做到什么程度，是风险控制的主要开关。' }, [
-      h(FieldBox, {
-        key: 'bash',
-        label: 'bash 模式',
-        first: true,
-        hint: 'safe 覆盖大多数场景；full 等同于你自己在终端操作',
-        help: HELP.bashMode,
-      }, h(SelectBox, {
-        width: '140px',
-        disabled,
-        value: fields.bashMode.text,
-        onChange: (next) => onEdit(BASH_MODE, next),
-        options: BASH_MODES.map((mode) => ({ value: mode, label: mode })),
-      })),
-      h(FieldBox, {
-        key: 'write',
-        label: '写入模式',
-        hint: 'workspace 允许在已授权目录内直接读写',
-        help: HELP.writeMode,
-      }, h(SelectBox, {
-        width: '140px',
-        disabled,
-        value: fields.writeMode.text,
-        onChange: (next) => onEdit(WRITE_MODE, next),
-        options: WRITE_MODES.map((mode) => ({ value: mode, label: mode })),
-      })),
-    ]),
+    h(NetworkGroup, { key: 'network', fields, disabled, onEdit, onReset, t }),
+    h(PermissionGroup, { key: 'permission', fields, disabled, onEdit, onReset, t }),
   ])
 }
 
 /**
- * 授权工作区字段：逐项勾选，整组映射作为一个草稿字段写入。
+ * 授权工作区：逐项勾选，整组映射作为一个草稿字段写入。
  *
  * 候选集来自 `catalog` 端点（DSH 工作区注册表），勾选状态来自表单草稿。
  * 复选框点击只改草稿：把整个映射重新序列化后 edit 一次，保存时由官方模型
@@ -346,9 +194,10 @@ export function OptionsFields({ fields, disabled, onEdit, onReset }) {
  * @param {Record<string, boolean>} props.authorized 当前草稿里的授权映射
  * @param {boolean} props.disabled 是否禁用
  * @param {Function} props.onEdit 暂存草稿
+ * @param {Function} props.t 翻译函数
  * @returns {object} React 元素
  */
-export function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
+export function WorkspacesField({ workspaces, authorized, disabled, onEdit, t }) {
   /**
    * 切换某个工作区的授权态并暂存整份映射。
    * @param {string} path 工作区路径
@@ -359,55 +208,38 @@ export function WorkspacesField({ workspaces, authorized, disabled, onEdit }) {
     const mapped = { ...authorized }
     if (next) mapped[path] = true
     else delete mapped[path]
-    onEdit(AUTHORIZED, JSON.stringify(mapped))
+    // 归一化保证同一授权集合总有同一草稿文本：键有序，且 false/缺席等价。
+    onEdit(AUTHORIZED, JSON.stringify(normalizeAuthorized(mapped)))
   }
 
-  const selected = Object.keys(authorized).length
   const list = Array.isArray(workspaces) ? workspaces : []
+  // 只数当前候选集：已从注册表删除的旧键仍留在 Config 里，但不属于「本页可选」。
+  const selected = list.filter((item) => authorized[item.path] === true).length
 
-  return h(Group, {
-    id: 'workspaces',
-    title: '授权工作区',
-    note: '未勾选的目录 ChatGPT 看不到。',
-    // 计数与帮助按钮放标题行（官方 .groupHead 的计数位），使三组结构一致：
-    // 标题（+ 计数）→ 说明 → 内容。
-    trailing: h('span', { key: 'tail', style: { display: 'inline-flex', alignItems: 'center', gap: '4px' } }, [
-      list.length
-        ? h('span', { key: 'c', style: { ...captionText, fontVariantNumeric: 'tabular-nums' } }, `已选 ${selected} / ${list.length}`)
-        : null,
-      h(Help, { key: 'help', id: 'codexpro-help-authorized', lines: HELP.authorized }),
-    ]),
-  }, [
-    list.length === 0
-      ? h('p', { key: 'empty', style: { ...hintText, marginTop: '8px' } },
-        '当前实例还没有工作区。在 DSH 里打开一个项目后，它就会出现在这里。')
-      : h('div', {
-        key: 'list',
-        style: { marginTop: '6px', border: `${HAIRLINE} solid ${T.borderL4}`, borderRadius: R.md, overflow: 'hidden' },
-      }, list.map((item, index) => h('div', {
-        key: item.path,
-        style: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '9px 12px',
-          fontSize: '13px',
-          borderTop: index === 0 ? 'none' : `${HAIRLINE} solid ${T.borderL2}`,
-          background: T.bgLayer3,
-          opacity: item.exists ? 1 : 0.55,
-        },
-      }, [
-        h(Checkbox, {
-          key: 'box',
-          checked: authorized[item.path] === true,
-          disabled: disabled || !item.exists,
-          onChange: (next) => toggle(item.path, next),
-        }),
-        h('span', { key: 'title', style: { ...fieldLabel, fontWeight: 400, flex: 'none' } }, item.title),
-        h('span', { key: 'path', style: { ...captionText, flex: '1 1 auto', wordBreak: 'break-all' } }, item.path),
-        item.exists ? null : h(Tag, { key: 'miss', tone: 'neutral' }, '目录不存在'),
-      ]))),
-  ])
+  return h(SettingsSection, {
+    id: 'codexpro-workspaces',
+    title: t('workspacesTitle'),
+    note: t('workspacesNote'),
+    help: { label: t('helpWorkspacesLabel'), content: t('helpWorkspacesContent') },
+    trailing: list.length
+      ? t('workspacesCount', { selected, total: list.length })
+      : null,
+  }, list.length === 0
+    ? h('p', { className: 'cxp-empty' }, t('workspacesEmpty'))
+    : h('div', { className: 'cxp-list' }, list.map((item, index) => h('div', {
+      key: item.path,
+      className: 'cxp-list-row',
+      'data-missing': !item.exists,
+    }, [
+      h(Checkbox, {
+        key: 'box',
+        checked: authorized[item.path] === true,
+        disabled: disabled || !item.exists,
+        ariaLabel: item.title,
+        onChange: (next) => toggle(item.path, next),
+      }),
+      h('span', { key: 'title', className: 'cxp-row-title' }, item.title),
+      h('span', { key: 'path', className: 'cxp-row-path' }, item.path),
+      item.exists ? null : h(Tag, { key: 'missing', tone: 'neutral' }, t('missingDirectory')),
+    ]))))
 }
-
-export { FieldBox, Group }

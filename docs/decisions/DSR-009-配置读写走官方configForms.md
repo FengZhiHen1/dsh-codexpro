@@ -1,5 +1,7 @@
 # DSR-009：配置读写改走官方 configForms
 
+> 后续（2026-10-17）：DSR-010 将 `SettingsFormModel` 等官方实现复制进插件，配置通道与 `plugins.row.config` 位置不变；本记录的通道结论仍有效。
+
 > **决定**：插件的全部配置字段（授权集与五个参数）读写一律经官方 `configForms` + `SettingsFormModel`，本插件不再自建表单与配置端点。配置页保留在侧栏插件页的 `plugins.row.config`，不自带卡片壳与页签栏。进程启停仍走本插件的 RPC 端点。
 > **理由**：官方在 v0.1.7 把插件配置的编辑入口从 Settings 迁到侧栏 Plugins 页，并明确 `plugins.item` 为官方设置页专属、第三方 bundle 的配置应注册 `plugins.bundle.config`/`plugins.row.config`。「官方配置方式」= Config 的 volatile 字段 + `configForms` + `SettingsFormModel`；自建草稿模型会与官方形态脱节（外观、revision 围栏、离开页面丢弃语义都不一致）。
 > **被否决项**：把配置页搬进设置页（`settings.section`）；保留自建表单但换位置；把启停也塞进 configForms。
@@ -29,7 +31,7 @@
 
 ### 1. 授权集作为一个 JSON 文本字段承载
 
-官方字段原语只有文本（`SettingsValueField`）与 write-only 密钥（`SettingsSecretField`），**没有布尔控件**（`knowledge/client/15` §4）。授权集是「路径 → 布尔」映射，用户交互是逐项勾选。
+官方字段原语只有文本（`SettingsValueField`）与 write-only 密钥（`SettingsSecretField`），**没有布尔控件**（`knowledge/v0.2.1-rc.2/05-插件工程约定.md`「插件设置页」）。授权集是「路径 → 布尔」映射，用户交互是逐项勾选。
 
 做法：把整份映射序列化为一个草稿字段（`authorized`），复选框点击只 `edit(AUTHORIZED, JSON.stringify(mapped))`，**不发请求**；点官方「保存」时由 `SettingsFormModel` 一次性 `mutate`。这与 `dsh-guardrails` 处理 category 叶子集的做法同一手法。
 
@@ -43,7 +45,7 @@
 
 ### 3. 配置变更经 `loader/volatile-update` 投影到磁盘
 
-配置写入 volatile 字段后，磁盘上的 profile 文件必须跟随，否则会出现「设置页显示已改、codexpro 实际按旧值跑」。官方为这类需求提供 instance-local 事件 `loader/volatile-update`（`knowledge/host/07` §2；参考实现 `packages/llm/llm-deepseek/src/host.ts:41`）。
+配置写入 volatile 字段后，磁盘上的 profile 文件必须跟随，否则会出现「设置页显示已改、codexpro 实际按旧值跑」。官方为这类需求提供 instance-local 事件 `loader/volatile-update`（`knowledge/v0.2.1-rc.2/05-插件工程约定.md`「配置与 volatile」；参考实现 `packages/llm/llm-deepseek/src/host.ts:41`）。
 
 - 挂载期不触发（首次投影由 `start` 负责）。
 - 投影失败只告警不抛出：设置写入本身已成功，回滚它会让用户在设置页看到与自己操作相反的结果。

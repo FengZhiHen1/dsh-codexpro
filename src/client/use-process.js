@@ -5,7 +5,7 @@
 // 配置字段的草稿与写入一律归官方 SettingsFormModel（见 form.js）。
 // 参考：technical-details/进程管理.md；technical-details/RPC通道与设置页.md §六。
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * 把任意失败值转为可读消息。
@@ -25,6 +25,8 @@ export function useProcess(call) {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // 只让最后一次 status 读取落地：挂载读取与动作后的重读可能乱序返回。
+  const latestRead = useRef(0)
 
   /**
    * 读回进程状态。成功时不清除已有错误——本函数会被动作流程调用，而动作刚设置的错误
@@ -32,10 +34,12 @@ export function useProcess(call) {
    * @returns {Promise<void>} 完成后结算
    */
   const refresh = useCallback(async () => {
+    const read = ++latestRead.current
     try {
-      setStatus(await call('status'))
+      const next = await call('status')
+      if (read === latestRead.current) setStatus(next)
     } catch (failure) {
-      setError(describeError(failure))
+      if (read === latestRead.current) setError(describeError(failure))
     }
   }, [call])
 

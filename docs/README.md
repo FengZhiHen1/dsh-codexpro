@@ -2,19 +2,20 @@
 
 ## 主题目标
 
-把 CodexPro 的配置与进程生命周期收进 DSH 设置页：以 DSH 工作区注册表为唯一授权来源，在插件设置页勾选要授权给 ChatGPT 的项目、控制 codexpro 进程启停、选择公网 tunnel 方式，日常使用不再需要手工维护 codexpro 配置。
+把 CodexPro 的配置与进程生命周期收进 DSH 插件页：以 DSH 工作区注册表为唯一授权来源，在插件页勾选要授权给 ChatGPT 的项目、控制 codexpro 进程启停、选择公网 tunnel 方式，日常使用不再需要手工维护 codexpro 配置。
 
 ## 当前状态
 
-**设计基线已成文；实现已完成并通过门禁，待 test 实例实测。**
+**设计基线已成文；实现已完成并通过源码门禁，运行期 UI 走查待 test 实例刷新后复核。**
 
 - 需求基线已形成（`需求.md`）：8 项功能需求、7 项非目标、10 项约束（C-01..C-10）、10 项验收条件（AC-01..AC-10）。
 - 两份定调文档已成文（`技术栈设计.md`、`项目结构设计.md`）。
 - 四篇技术细节已成文（`technical-details/`）。
-- 九份决策记录已成文（`decisions/`，DSR-001..009）——含两项由实测定型的关键机制、一项配置面架构重构。
+- 十份决策记录已成文（`decisions/`，DSR-001..010）——含两项由实测定型的关键机制、配置面架构重构与 0.2.1 适配。
 - 仓库骨架已建立：`FengZhiHen1/dsh-codexpro`（公共、MIT）已创建，`plugins/dsh-codexpro/` 已作为 submodule 挂载并提交。npm 包名 `dsh-codexpro` 已核实可用。
 - **进程机制已完成实测**（2026-09-30，隔离实测场）：停止主路径定型为 stdin `q`（唯一触发 codexpro 自身清理的通道，见 DSR-007）；`ctx.subprocess` 的 Windows 进程容器确认可用，整树终止已验证（DSR-008）；崩溃残留的 runtime 文件由 codexpro 自行回收。⇒ 无阻塞实现的未取证项。
-- **配置面已改为官方通道**（DSR-009）：配置读写经 `configForms` + `SettingsFormModel`，配置页留在侧栏插件页的 `plugins.row.config`；本插件端点收敛为四条进程/探测端点。
+- **配置面已改为官方通道**（DSR-009）：配置读写经 `configForms` + 复制的 `SettingsFormModel`，配置页留在侧栏插件页的 `plugins.row.config`；本插件端点收敛为四条进程/探测端点。
+- **已适配 DSH 0.2.1**（DSR-010）：不再 import 任何 Harness Client 包；设置页框架、字段几何与草稿语义复制进 bundle，类名 `cxp-` 前缀；补齐包级 locale/icon 与配置页中英文案；版本号保持 `0.1.0`。
 
 ## 阅读顺序
 
@@ -33,8 +34,8 @@
 | `项目结构设计.md` | 目标目录结构、core/adapter 分层与依赖方向、可执行解析约定、数据所有权与不变量、全局约定、RPC 通道 |
 | `technical-details/配置与profile投影.md` | 配置字段与 volatile 形状约束、校验规则、锚点与数据目录、profile 文件身份与写入语义、候选集推导 |
 | `technical-details/进程管理.md` | 宿主进程能力边界、环境清洗陷阱、启动与 spawn 规格、健康探测、状态机、终止分层防线、失败语义 |
-| `technical-details/RPC通道与设置页.md` | 传输形态与约束、端点清单（四条进程/探测端点）、信封契约与错误码、配置变更到 profile 的投影链路、slot 与 key 约定、页面形态与 UI 原语 |
-| `decisions/` | 九份真实重大取舍的备选、评价、后果与重访条件（DSR-007 停止主路径、DSR-008 进程托管为实测定型、DSR-009 配置面改官方通道） |
+| `technical-details/RPC通道与设置页.md` | 传输形态与约束、端点清单（四条进程/探测端点）、信封契约与错误码、配置变更到 profile 的投影链路、slot 与 key 约定、页面形态与 UI 实现 |
+| `decisions/` | 十份真实重大取舍的备选、评价、后果与重访条件（DSR-007 停止主路径、DSR-008 进程托管为实测定型、DSR-009 配置面改官方通道、DSR-010 0.2.1 适配） |
 | `TODO.md` | 未决事项（T-05..T-07）、已完成的实测索引、实现阶段门禁、待人工走查项 |
 
 ## 上游依赖的所有权边界
@@ -44,12 +45,12 @@
 | 事实 | 所有者 |
 |------|--------|
 | `/api` 精确 Fetch 路由取代 `connection.rpc.handle` 的结论与消融证据 | 仓库级决策记录 `docs/decisions/0002-自定义RPC通道改用精确Fetch路由.md` |
-| DSH 插件开发范式（三平面、包结构、patch 语法、部署红线） | 仓库知识库 `knowledge/v0.1.7-rc.2/` |
+| DSH 插件开发范式（三平面、包结构、patch 语法、部署红线、Client UI 引用） | 仓库知识库 `knowledge/v0.2.1-rc.2/` |
 | codexpro 自身的行为（CLI 参数、profile 文件形状、健康端点、安全姿态） | 上游项目 `rebel0789/codexpro`；本设计锚定 `0.30.2` |
 
 ## 已知偏差与缺证
 
-- `missing evidence`：**非 Windows 平台的行为**。全部取证在 Windows + DSH `0.1.7-rc.2` 上完成。C-08 要求实现按可移植标准编写（平台差异隔离在可执行解析与进程终止两层），但**不支持任何未经实测的平台声明**。
+- `missing evidence`：**非 Windows 平台的行为**。全部进程取证在 Windows + DSH `0.1.7-rc.2` 上完成，0.2.1 的 UI 适配另经源码与静态门禁复核。C-08 要求实现按可移植标准编写（平台差异隔离在可执行解析与进程终止两层），但**不支持任何未经实测的平台声明**。
 - `missing evidence`：**codexpro 版本漂移**。全部分析与实测锚定 `0.30.2`；上游改变启动参数、profile 形状、`/healthz` 端点或非 TTY stdin 的控制通道会使相关机制失效（`TODO.md` T-06）。
+- `missing evidence`：**0.2.1 运行期 UI 走查**。行标题/简介、light/dark 外观与 Console 无崩溃需在 test 实例刷新页面后人工确认（`TODO.md` T-09、T-11）。
 - 待确认：`anchorDir` 是否需要暴露到设置页（`TODO.md` T-07）。
-- 注意：设计与实现均未开始，本文件所述「已成文」指文档交付；已实测的部分限于进程机制（见「当前状态」）。

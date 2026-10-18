@@ -6,7 +6,7 @@
 
 ## 一、配置模型
 
-配置真相是**本插件 loader 行的 Cordis `Config`**，持久化在该 profile 的 `cordis.patch.yml` 中本行 `config` 字段。所有可由用户在设置页修改的字段带 `.volatile()`；消费者通过 `ref.get()` 在操作时读取实时值。
+配置真相是**本插件 loader 行的 Cordis `Config`**，持久化在该 profile 的 `cordis.patch.yml` 中本行 `config` 字段。所有可由用户在插件页修改的字段带 `.volatile()`；消费者通过 `ref.get()` 在操作时读取实时值。
 
 ### 字段表
 
@@ -15,6 +15,7 @@
 | `authorized` | `dict(boolean)` | `{}` | 是 | 授权映射：工作区 realpath → 是否授权 |
 | `tunnelMode` | `string`（枚举） | `"none"` | 是 | `none` / `ngrok` / `cloudflare` / `cloudflare-named` / `tailscale` |
 | `tunnelHostname` | `string` | `""` | 是 | 具名 tunnel 的公网 hostname；`tunnelMode` 为 `none`/`cloudflare` 时忽略 |
+| `tunnelName` | `string` | `""` | 是 | cloudflare 具名隧道的隧道名；仅 `cloudflare-named` 下写入 profile，上限 128 字符 |
 | `port` | `string` | `"8787"` | 是 | 本地监听端口（字符串形态，由 adapter 校验 1–65535） |
 | `bashMode` | `string`（枚举） | `"safe"` | 是 | `off` / `safe` / `full` |
 | `writeMode` | `string`（枚举） | `"workspace"` | 是 | `off` / `handoff` / `workspace`（R-07） |
@@ -27,7 +28,7 @@
 
 1. `.volatile()` 加在 **dict 节点本身**（`Schema.dict(Schema.boolean()).volatile()`），**不得**加在其值 schema 上（`Schema.dict(Schema.boolean().volatile())`）——后者抛 `volatile fields require a fixed object path without an enclosing volatile field`。
 2. volatile **不可嵌套**：任何字段的祖先链上不得再出现 `.volatile()`。
-3. 只有 volatile 字段可写；设置表单对非 volatile 路径的写入**直接抛错**，且非 volatile 字段不出现在设置页。
+3. 只有 volatile 字段可写；设置表单对非 volatile 路径的写入**直接抛错**，且非 volatile 字段不出现在插件页。
 
 `authorized` 用 `dict(boolean)` 而非 `array(string)` 的理由：工作区的**取消授权**必须能与「尚未见过的新工作区」区分开。若用数组，移除一项后下次同步无法判断它是「用户取消」还是「新出现但还没勾」；映射形式让两者天然分离——键存在且为 `false` 即「明确取消」，键缺席即「未表态」。
 

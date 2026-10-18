@@ -2,13 +2,11 @@
 //
 // 边界：只描述字段与「配置值 ↔ 草稿文本」的转换，不含 UI（UI 在 card.jsx）。
 // 配置真相 = 本行 loader entry 的 Cordis Config（volatile 字段）；读写全走官方 configForms，
-// 草稿暂存、revision 围栏、保存后回读、离开页面丢弃都归官方 SettingsFormModel。
+// 草稿暂存、revision 围栏、保存后回读、离开页面丢弃都归本地复制的 SettingsFormModel。
 // 官方字段原语只有文本与 write-only 密钥，没有 select/boolean，故 select 与复选框自绘，
-// 但草稿与写入仍走本模型的 edit/resetField（knowledge/client/15 §4）。
-// 参考：knowledge/client/15 §4；knowledge/host/07；官方范本
-//   ui-settings-shell/src/client/shell-card-controller.ts、ui-settings-agent-loop 同名文件。
+// 但草稿与写入仍走本模型的 edit/resetField。
+// 参考：knowledge/v0.2.1-rc.2/05-插件工程约定.md「插件设置页」；DSR-009、DSR-010。
 
-import { SettingsFormModel, settingsTextField } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   BASH_MODES,
   PORT_RANGE,
@@ -17,6 +15,7 @@ import {
   TUNNEL_NAME_REQUIRED_TUNNELS,
   WRITE_MODES,
 } from '../core/codexpro.js'
+import { SettingsFormModel, settingsTextField } from './settings-model.js'
 
 /** 授权集字段名（Host Config 的 dict 字段）。 */
 export const AUTHORIZED = 'authorized'

@@ -23,19 +23,27 @@
 
 原自建表单（`src/client/use-config.js`）与其测试已删除；其中「启动失败原因必须对用户可见」的回归已迁移到 `test/use-process.test.mjs`。
 
+## 已完成适配（2026-10-17）
+
+| 项 | 结论 | 落点 |
+|----|------|------|
+| DSH 0.2.1 | 配置页退出所有 Harness Client 包依赖，复制官方 `SettingsForm`/字段/模型/控件；补包级 locale 与 icon、配置页中英文案；`engines.dsh` 升到 `^0.2.1-rc.2`；版本号保持 `0.1.0` | DSR-010、`technical-details/RPC通道与设置页.md` §五、`test/ui-spec.test.mjs`、`test/settings-model.test.mjs`、`test/locale-metadata.test.mjs` |
+
 ## 未决事项
 
 | # | 事项 | 说明 |
 |---|------|------|
-| T-05 | **非 Windows 平台的支持声明** | 当前设计只声称 Windows + DSH `0.1.7-rc.2` 实测通过（`技术栈设计.md` §五）。macOS/Linux 的容器机制（`linux-scope`）、信号语义与路径行为均未取证；README 不得声称支持 |
+| T-05 | **非 Windows 平台的支持声明** | 进程机制只声称 Windows + DSH `0.1.7-rc.2` 实测通过（`技术栈设计.md` §五）；0.2.1 适配经源码复核与静态门禁。macOS/Linux 的容器机制（`linux-scope`）、信号语义与路径行为均未取证；README 不得声称支持 |
 | T-06 | **codexpro 后续版本的行为漂移** | 本设计锚定 `codexpro@0.30.2`。启动参数、profile 文件形状、`/healthz` 端点、非 TTY stdin 的 `q` 通道任一变更都可能使设计失效；实现需做版本探测并在不符时提示 |
-| T-07 | **`anchorDir` 是否应暴露到设置页** | 当前为非 volatile（部署事实，经 profile patch 钉死），故不出现在设置页。若需频繁更换锚点，需重新评估 |
+| T-07 | **`anchorDir` 是否应暴露到插件页** | 当前为非 volatile（部署事实，经 profile patch 钉死），故不出现在插件页。若需频繁更换锚点，需重新评估 |
 
 ## 实现阶段的门禁（执行时逐项核对）
 
 - 发布前置门禁：`dsh --profile test` 启动无 `N entries did not activate`、无 `N required plugin[s] did not activate`；功能冒烟见 `需求.md` AC 表。
 - 分层门禁：`node tools/plugin-layering-check.mjs plugins/dsh-codexpro` 全绿。
 - 产物新鲜度：`node build-client.mjs --check` 通过。
+- Client 纯净度：产物无 `require("@deepseek-ai/dsh-client-…")`；构建守卫与 `test/client-bundle-load.test.mjs` 同时检查。
+- 展示元数据：`locale/en.json`、`locale/zh.json` 的 `meta.title` / `meta.description` 非空，`icon.svg` 可读且由 `./icon` 导出（`test/locale-metadata.test.mjs`）。
 - `--dump-config` 人工核对：本插件为单一行，来源正确，无重复 id（本代无机械闸门兜底）。
 - 停止路径实现须与 DSR-007 的顺序一致（`q` → 等待 → `terminate()` 兜底），且 `stdio.stdin` 必须为 `'pipe'`。
 
@@ -44,5 +52,6 @@
 | # | 验收 | 说明 |
 |---|------|------|
 | T-08 | AC-04 页面级走查 | Server URL 在 ChatGPT 连接器建连需人工在浏览器完成，无法由自动化替代 |
-| T-09 | AC-10 UI 走查 | 侧栏插件页「配置」控件出现且 DevTools Console 无 `slot entry crashed`；该崩溃路径无部署层报错 |
+| T-09 | AC-10 UI 走查 | 侧栏插件页显示本行的 locale 标题/简介与「配置」控件，且 DevTools Console 无 `slot entry crashed`；该崩溃路径无部署层报错 |
 | T-10 | AC-06 实例退出后残留检测 | 需真实关闭再打开 DSH 实例，属用户操作 |
+| T-11 | 0.2.1 运行期 UI 走查 | 已实测 Host Config schema、locale 标题/简介/图标与 slot occupant active；仍待刷新页面确认配置页在 light/dark 下与相邻官方设置页同构，DevTools Console 无 `slot entry crashed`。源码门禁不能替代视觉走查 |

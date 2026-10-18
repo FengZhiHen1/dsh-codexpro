@@ -164,6 +164,36 @@ test('启动成功后清除错误并读回新状态', async () => {
   }
 })
 
+test('并发刷新只让最后一次读取落地（迟到响应不覆盖新状态）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codexpro-proc-'))
+  try {
+    const { useProcess, control } = await loadHook(root)
+    let defer = false
+    const pending = []
+    const call = async (endpoint) => {
+      if (endpoint !== 'status') return {}
+      if (!defer) return { state: 'idle', port: '8787', tunnel: 'none', token: '', url: '', lastError: '' }
+      return new Promise((resolve) => { pending.push(resolve) })
+    }
+    const state = await render(useProcess, call, control)
+
+    defer = true
+    const first = state.refresh()
+    const second = state.refresh()
+    // 后发先至：第二次读取先返回 running，第一次迟到返回 idle，后者必须被丢弃。
+    pending[1]({ state: 'running', port: '8787', tunnel: 'none', token: 't', url: 'u', lastError: '' })
+    pending[0]({ state: 'idle', port: '8787', tunnel: 'none', token: '', url: '', lastError: '' })
+    await Promise.all([first, second])
+
+    defer = false
+    control.enter('codexpro-process')
+    const observed = useProcess(call)
+    assert.equal(observed.status.state, 'running', '迟到的旧响应不得覆盖新状态')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('刷新失败时保留上次状态并给出错误', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'codexpro-proc-'))
   try {

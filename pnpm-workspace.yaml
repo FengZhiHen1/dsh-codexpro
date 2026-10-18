@@ -1,5 +1,27 @@
 allowBuilds:
   esbuild: true
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/dsh-app-boot@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-atomic-write@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-brand@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-config-editor@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-home-paths@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-http-proxy@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-launch-environment@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-llm@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-package-manifest@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-scope@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-session-persistence@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-session@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-settings@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-storage-domain@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-storage@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-subprocess@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-timeout@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-typert-protocol@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-util-crypto@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-util-values@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-workspace@0.2.1-rc.2'
 # 本机 pnpm store 例外（AGENTS：E: 盘仓库族用自定义 store）。node_modules 记录即此
 # store；不钉此项则 pnpm run 的依赖核验子进程用默认 store → 触发 modules purge。
 storeDir: E:/Project/Tool/dsh-auteur/.pnpm-store
